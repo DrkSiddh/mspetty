@@ -1,5 +1,5 @@
-// deploy test 2026-06-06
 import { useState, useEffect, useRef, useCallback } from "react";
+import { connectWallet, isHolder, getLaserColor } from "./superkindGate";
 
 // ============================================================
 // MS. PETTY — BIG GIRLY PEW PEW · a HATER game
@@ -356,6 +356,12 @@ export default function MsPetty() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState(null); // 'leaderboard', 'shop', 'social', 'guide', 'how', 'lore'
 
+  // ── SUPERKIND NFT GATE (Phase 1) ──────────────────────────────
+  const [walletAddress, setWalletAddress] = useState(null);
+  const [holder, setHolder] = useState(false);
+  const [laserColor, setLaserColor] = useState(LIME); // default = existing pew/laser color
+  const [walletNotice, setWalletNotice] = useState(null);
+
   const prevLevelRef = useRef(null);
   const balloonIdRef = useRef(0);
   const itemIdRef = useRef(0);
@@ -385,6 +391,7 @@ export default function MsPetty() {
   // Timer
   useEffect(() => {
     if (screen !== "game" || paused) return;
+    if (holder) return; // SuperKind holders: infinite time — no countdown, no game-over
     if (timeLeft <= 0) {
       // Save lifetime $SHOTS
       try {
@@ -398,7 +405,7 @@ export default function MsPetty() {
     }
     const t = setInterval(() => setTimeLeft(t => t - 1), 1000);
     return () => clearInterval(t);
-  }, [screen, timeLeft, paused, earned, score]);
+  }, [screen, timeLeft, paused, earned, score, holder]);
 
   // Balloon spawner
   useEffect(() => {
@@ -442,7 +449,7 @@ export default function MsPetty() {
             kept.push({ ...item, y: newY });
           }
         }
-        if (missedGood) {
+        if (missedGood && !holder) {
           setTimeLeft(t => Math.max(0, t - 2));
           setFlash({ text: "the smile won that round −2s", color: MAGENTA, x: missedX, y: 80 });
           setTimeout(() => setFlash(null), 1000);
@@ -451,7 +458,7 @@ export default function MsPetty() {
       });
     }, 50);
     return () => clearInterval(raf);
-  }, [screen, paused]);
+  }, [screen, paused, holder]);
 
   // Pop a balloon → spawn falling consequence
   const popBalloon = useCallback((balloon) => {
@@ -475,9 +482,9 @@ export default function MsPetty() {
     setBalloons(prev => prev.filter(b => b.id !== balloon.id));
 
     const popId = Date.now() + Math.random();
-    setPopEffects(prev => [...prev, { id: popId, x: balloon.x, y: balloon.y, color: balloon.color }]);
+    setPopEffects(prev => [...prev, { id: popId, x: balloon.x, y: balloon.y, color: holder ? laserColor : balloon.color }]);
     setTimeout(() => setPopEffects(prev => prev.filter(p => p.id !== popId)), 600);
-  }, [score]);
+  }, [score, holder, laserColor]);
 
   // Catch a falling item
   const catchItem = useCallback((item, e) => {
@@ -524,13 +531,39 @@ export default function MsPetty() {
     setScreen("intro");
   };
 
+  // Optional crypto connect — non-holders still play normal 30s rounds.
+  const handleConnectWallet = useCallback(async () => {
+    setWalletNotice({ ok: true, text: "connecting wallet..." });
+    try {
+      const addr = await connectWallet();
+      setWalletAddress(addr);
+      const isH = await isHolder(addr);
+      setHolder(isH);
+      if (isH) {
+        try {
+          const color = await getLaserColor(addr);
+          setLaserColor(color || LIME);
+        } catch (_) { setLaserColor(LIME); }
+        setWalletNotice({ ok: true, text: "∞ UNLIMITED · SUPERKIND HOLDER" });
+      } else {
+        setWalletNotice({ ok: false, text: "no SuperKind found · normal play" });
+      }
+    } catch (err) {
+      // Fail gracefully back to normal play — never crash.
+      const msg = err && err.message === "NO_WALLET"
+        ? "no wallet detected · play normally"
+        : "wallet connect skipped · play normally";
+      setWalletNotice({ ok: false, text: msg });
+    }
+  }, []);
+
   // ── ROUTE TO SCREENS ────────────────────────────────────────
-  if (screen === "login")    return <LoginScreen onLogin={handleLogin} />;
+  if (screen === "login")    return <LoginScreen onLogin={handleLogin} onConnectWallet={handleConnectWallet} holder={holder} laserColor={laserColor} notice={walletNotice} />;
   if (screen === "intro")    return <IntroScreen haterName={haterName} onStart={startGame} onPanel={setActivePanel} activePanel={activePanel} />;
   if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} />;
 
   // ── GAME SCREEN ─────────────────────────────────────────────
-  const timeColor = timeLeft <= 10 ? MAGENTA : timeLeft <= 20 ? YELLOW : LIME;
+  const timeColor = holder ? laserColor : (timeLeft <= 10 ? MAGENTA : timeLeft <= 20 ? YELLOW : LIME);
 
   return (
     <div style={{
@@ -578,10 +611,10 @@ export default function MsPetty() {
             TIME
           </div>
           <div style={{
-            fontFamily: PIXEL, fontSize: 20, color: timeColor,
-            textShadow: timeLeft <= 10 ? `0 0 12px ${MAGENTA}` : `0 0 8px ${timeColor}66`,
+            fontFamily: PIXEL, fontSize: holder ? 24 : 20, color: timeColor,
+            textShadow: (!holder && timeLeft <= 10) ? `0 0 12px ${MAGENTA}` : `0 0 8px ${timeColor}66`,
           }}>
-            {timeLeft}s
+            {holder ? "∞" : `${timeLeft}s`}
           </div>
         </div>
       </div>
@@ -742,7 +775,7 @@ export default function MsPetty() {
       )}
 
       {/* TIME WARNING PULSE */}
-      {timeLeft <= 10 && !paused && (
+      {!holder && timeLeft <= 10 && !paused && (
         <div style={{
           position: "absolute", inset: 0, pointerEvents: "none",
           border: `4px solid ${MAGENTA}`,
@@ -795,7 +828,7 @@ function SparkleField() {
 }
 
 // ── LOGIN MODAL ───────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, onConnectWallet, holder, laserColor, notice }) {
   const [name, setName] = useState("");
   return (
     <div style={{
@@ -847,6 +880,47 @@ function LoginScreen({ onLogin }) {
         <div style={{ fontFamily: READ, fontSize: 16, color: "#666", textAlign: "center", marginTop: 16, lineHeight: 1.4 }}>
           No account or password needed.<br/>Your progress is saved locally.
         </div>
+
+        {/* ── SUPERKIND HOLDER PERKS (optional, crypto-only) ──────── */}
+        <div style={{ borderTop: `1px dashed ${PURPLE}66`, margin: "20px 0 14px" }} />
+        <div style={{ fontFamily: PIXEL, fontSize: 9, color: CYAN, letterSpacing: 2, textAlign: "center", marginBottom: 4 }}>
+          SUPERKIND HOLDER?
+        </div>
+        <div style={{ fontFamily: READ, fontSize: 15, color: "#888", textAlign: "center", marginBottom: 12, lineHeight: 1.4 }}>
+          Go ∞ infinite + a custom laser color. Optional — non-holders play the normal 30s rounds.
+        </div>
+        <button onClick={onConnectWallet} style={{
+          width: "100%", background: BLACK,
+          color: CYAN, border: `2px solid ${CYAN}`,
+          borderRadius: 4, padding: "14px",
+          fontFamily: PIXEL, fontSize: 11, letterSpacing: 2,
+          cursor: "pointer",
+          boxShadow: `4px 4px 0 ${BLACK}, 0 0 16px ${CYAN}44`,
+        }}>
+          🔗 CONNECT WALLET
+        </button>
+
+        {holder && (
+          <div style={{
+            marginTop: 14, padding: "12px",
+            border: `2px solid ${laserColor}`, borderRadius: 4,
+            background: `${laserColor}11`, textAlign: "center",
+            fontFamily: PIXEL, fontSize: 10, letterSpacing: 1,
+            color: laserColor, textShadow: `0 0 10px ${laserColor}88`,
+          }}>
+            ∞ UNLIMITED · SUPERKIND HOLDER
+          </div>
+        )}
+
+        {notice && !holder && (
+          <div style={{
+            marginTop: 12, fontFamily: READ, fontSize: 16,
+            color: notice.ok ? LIME : PURPLE_LT,
+            textAlign: "center", lineHeight: 1.4,
+          }}>
+            {notice.text}
+          </div>
+        )}
       </div>
     </div>
   );
