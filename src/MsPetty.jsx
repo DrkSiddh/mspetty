@@ -1323,51 +1323,92 @@ function Stat({ label, value, color }) {
 
 // ── SHOP ──────────────────────────────────────────────────────
 function ShopPanel() {
-  const items = [
-    { emoji: "🔫", name: "GLITTER RAY GUN", cost: 500, desc: "Bigger pew. More glitter." },
-    { emoji: "💖", name: "EXTRA LIFE",      cost: 250, desc: "One more chance, one more crusade." },
-    { emoji: "⏱️", name: "TIME FREEZE",     cost: 400, desc: "10 seconds of stopped clock." },
-    { emoji: "✨", name: "DOUBLE $SHOTS",   cost: 800, desc: "30 seconds. Everything counts twice." },
-    { emoji: "🪄", name: "AUTO-CATCHER",    cost: 600, desc: "Misses become catches. Briefly." },
+  const COLLECTION = "https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf";
+  const lasers = [
+    {
+      emoji: "🔫", token: "TOKEN #1", accent: "#FF3B3B",
+      name: "BIG PHAT RED",
+      desc: "Neon red laser. The original sin. Live on auction.",
+      url: `${COLLECTION}/1`, btnBg: "#FF3B3B", btnColor: "#000",
+    },
+    {
+      emoji: "🔫", token: "TOKEN #2", accent: "#7B2FBE",
+      name: "SUPER BLAUM",
+      desc: "Purple beam. Refined menace. Live on auction.",
+      url: `${COLLECTION}/2`, btnBg: "#7B2FBE", btnColor: "#fff",
+    },
   ];
   return (
     <div style={{ fontFamily: READ, color: "#fff" }}>
-      <PixelHeader color={PINK} size={18}>SHOP</PixelHeader>
-      <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginTop: 8, marginBottom: 28 }}>
-        "spend your $SHOTS, level up your hate"
+      <PixelHeader color={PINK} size={18}>PEW PEW ARSENAL</PixelHeader>
+      <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginTop: 8, marginBottom: 8 }}>
+        "own a laser. play forever. unlock chaos."
+      </div>
+      <div style={{ fontFamily: READ, fontSize: 14, color: "#999", marginBottom: 28, lineHeight: 1.4 }}>
+        Every weapon is an ERC-721 on Base. Hold one → infinite gameplay + custom laser color. Founder's piece not for sale.
       </div>
 
-      {items.map((it, i) => (
+      {lasers.map((it, i) => (
         <div key={i} style={{
           background: BLACK, border: `2px solid ${PINK}`,
           borderRadius: 6, padding: 16, marginBottom: 12,
           display: "flex", alignItems: "center", gap: 14,
         }}>
-          <div style={{ fontSize: 38 }}>{it.emoji}</div>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 38 }}>{it.emoji}</div>
+            <div style={{ fontFamily: PIXEL, fontSize: 8, color: it.accent, marginTop: 4 }}>{it.token}</div>
+          </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: PIXEL, fontSize: 10, color: PINK, letterSpacing: 1, marginBottom: 4 }}>
+            <div style={{ fontFamily: PIXEL, fontSize: 10, color: it.accent, letterSpacing: 1, marginBottom: 4 }}>
               {it.name}
             </div>
-            <div style={{ fontFamily: READ, fontSize: 16, color: "#999" }}>{it.desc}</div>
+            <div style={{ fontFamily: READ, fontSize: 16, color: "#ccc" }}>{it.desc}</div>
           </div>
-          <button disabled style={{
-            background: PURPLE, color: "#fff",
+          <a href={it.url} target="_blank" rel="noopener noreferrer" style={{
+            background: it.btnBg, color: it.btnColor,
             border: `2px solid ${LIME}`, borderRadius: 3,
             padding: "8px 12px", fontFamily: PIXEL, fontSize: 9,
-            opacity: 0.5, cursor: "not-allowed",
+            textDecoration: "none", whiteSpace: "nowrap",
           }}>
-            {it.cost} $S
-          </button>
+            BID ON BASE →
+          </a>
         </div>
       ))}
 
       <div style={{
-        textAlign: "center", padding: 16, marginTop: 16,
-        fontFamily: READ, fontSize: 17, color: "#666",
-        border: `1px dashed ${PINK}`, borderRadius: 6,
+        background: BLACK, border: `2px solid ${LIME}`,
+        borderRadius: 6, padding: 16, marginBottom: 12, opacity: 0.85,
+        display: "flex", alignItems: "center", gap: 14,
       }}>
-        🚧 Shop opens in v3. Items locked for now.
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 38 }}>🔫</div>
+          <div style={{ fontFamily: PIXEL, fontSize: 8, color: LIME, marginTop: 4 }}>TOKEN #3</div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: PIXEL, fontSize: 10, color: LIME, letterSpacing: 1, marginBottom: 4 }}>
+            FOUNDER'S CACHE
+          </div>
+          <div style={{ fontFamily: READ, fontSize: 16, color: "#ccc" }}>
+            Held by the founder of SuperKind Toy Co. Trophy, not stock.
+          </div>
+        </div>
+        <div style={{
+          fontFamily: PIXEL, fontSize: 9, color: LIME,
+          border: `1px dashed ${LIME}`, borderRadius: 3, padding: "8px 12px",
+          whiteSpace: "nowrap",
+        }}>
+          NOT FOR SALE
+        </div>
       </div>
+
+      <a href={COLLECTION} target="_blank" rel="noopener noreferrer" style={{
+        display: "block", textAlign: "center", padding: 16, marginTop: 16,
+        fontFamily: READ, fontSize: 15, color: PINK,
+        border: `1px dashed ${PINK}`, borderRadius: 6,
+        textDecoration: "none",
+      }}>
+        more weapons dropping → see the full arsenal on transient
+      </a>
     </div>
   );
 }
