@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { recordRun, getDossier, getRank } from "./pettyStats";
 import { connectWallet, isHolder, getLaserColor } from "./superkindGate";
 
 // ============================================================
@@ -355,6 +356,7 @@ export default function MsPetty() {
   const [paused, setPaused] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activePanel, setActivePanel] = useState(null); // 'leaderboard', 'shop', 'social', 'guide', 'how', 'lore'
+  const [runSummary, setRunSummary] = useState(null);
 
   // ── SUPERKIND NFT GATE (Phase 1) ──────────────────────────────
   const [walletAddress, setWalletAddress] = useState(null);
@@ -363,6 +365,7 @@ export default function MsPetty() {
   const [walletNotice, setWalletNotice] = useState(null);
 
   const prevLevelRef = useRef(null);
+  const runStatsRef = useRef({ catches: 0, penalties: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } });
   const balloonIdRef = useRef(0);
   const itemIdRef = useRef(0);
 
@@ -393,19 +396,20 @@ export default function MsPetty() {
     if (screen !== "game" || paused) return;
     if (holder) return; // SuperKind holders: infinite time — no countdown, no game-over
     if (timeLeft <= 0) {
-      // Save lifetime $SHOTS
-      try {
-        const lifetime = parseInt(localStorage.getItem('lifetimeShots') || '0');
-        localStorage.setItem('lifetimeShots', String(lifetime + earned));
-        const best = parseInt(localStorage.getItem('bestScore') || '0');
-        if (score > best) localStorage.setItem('bestScore', String(score));
-      } catch(e) {}
+      const rs = runStatsRef.current;
+      const summary = recordRun({
+        score, earned, disrupted: totalDisrupted,
+        level: getLevel(score).name,
+        catches: rs.catches, penalties: rs.penalties,
+        bestCatch: rs.bestCatch, worstPenalty: rs.worstPenalty,
+      });
+      setRunSummary(summary);
       setScreen("gameover");
       return;
     }
     const t = setInterval(() => setTimeLeft(t => t - 1), 1000);
     return () => clearInterval(t);
-  }, [screen, timeLeft, paused, earned, score, holder]);
+  }, [screen, timeLeft, paused, earned, score, holder, totalDisrupted]);
 
   // Balloon spawner
   useEffect(() => {
@@ -494,6 +498,15 @@ export default function MsPetty() {
     setScore(s => Math.max(0, s + val));
     if (val > 0) setEarned(e2 => e2 + val);
 
+    const rs = runStatsRef.current;
+    if (val > 0) {
+      rs.catches += 1;
+      if (val > rs.bestCatch.value) rs.bestCatch = { name: item.name, emoji: item.emoji, value: val };
+    } else if (val < 0) {
+      rs.penalties += 1;
+      if (val < rs.worstPenalty.value) rs.worstPenalty = { name: item.name, emoji: item.emoji, value: val };
+    }
+
     const burstId = Date.now() + Math.random();
     setPopEffects(prev => [...prev, {
       id: burstId, x: item.x, y: item.y,
@@ -521,6 +534,8 @@ export default function MsPetty() {
     setMenuOpen(false);
     setActivePanel(null);
     prevLevelRef.current = null;
+    runStatsRef.current = { catches: 0, penalties: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } };
+    setRunSummary(null);
     setScreen("game");
   };
 
@@ -560,7 +575,7 @@ export default function MsPetty() {
   // ── ROUTE TO SCREENS ────────────────────────────────────────
   if (screen === "login")    return <LoginScreen onLogin={handleLogin} onConnectWallet={handleConnectWallet} holder={holder} laserColor={laserColor} notice={walletNotice} />;
   if (screen === "intro")    return <IntroScreen haterName={haterName} onStart={startGame} onPanel={setActivePanel} activePanel={activePanel} />;
-  if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} />;
+  if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} summary={runSummary} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} />;
 
   // ── GAME SCREEN ─────────────────────────────────────────────
   const timeColor = holder ? laserColor : (timeLeft <= 10 ? MAGENTA : timeLeft <= 20 ? YELLOW : LIME);
@@ -1264,27 +1279,18 @@ function LorePanel() {
 
 // ── LEADERBOARD (local for now) ───────────────────────────────
 function LeaderboardPanel({ haterName, score }) {
-  const [bestScore, setBest] = useState(0);
-  const [lifetime, setLifetime] = useState(0);
-
-  useEffect(() => {
-    try {
-      setBest(parseInt(localStorage.getItem('bestScore') || '0'));
-      setLifetime(parseInt(localStorage.getItem('lifetimeShots') || '0'));
-    } catch(e) {}
-  }, []);
+  const [d, setD] = useState(null);
+  useEffect(() => { try { setD(getDossier()); } catch(e) {} }, []);
+  const dos = d || { bestScore: 0, lifetimeShots: 0, totalRuns: 0, avgScore: 0, lifetimeCatchRate: 0, longestStreak: 0, bestCatch: { name: "—", emoji: "🌟", value: 0 } };
 
   return (
     <div style={{ fontFamily: READ, color: "#fff" }}>
-      <PixelHeader color={YELLOW} size={18}>LEADERBOARD</PixelHeader>
+      <PixelHeader color={YELLOW} size={18}>YOU vs YOU</PixelHeader>
       <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginTop: 8, marginBottom: 28 }}>
-        "global board coming. local for now."
+        "no global board yet. so the only fool to beat is past you."
       </div>
 
-      <div style={{
-        background: BLACK, border: `2px solid ${YELLOW}`,
-        borderRadius: 6, padding: 20, marginBottom: 16,
-      }}>
+      <div style={{ background: BLACK, border: `2px solid ${YELLOW}`, borderRadius: 6, padding: 20, marginBottom: 14 }}>
         <div style={{ fontFamily: PIXEL, fontSize: 9, color: PURPLE_LT, letterSpacing: 2, marginBottom: 8 }}>
           YOUR HATER
         </div>
@@ -1292,17 +1298,26 @@ function LeaderboardPanel({ haterName, score }) {
           {haterName?.toUpperCase() || "BIGHATER"}
         </div>
 
-        <Stat label="BEST SCORE" value={bestScore} color={YELLOW} />
-        <Stat label="LIFETIME $SHOTS" value={lifetime.toLocaleString()} color={LIME} />
+        <Stat label="BEST SCORE" value={dos.bestScore} color={YELLOW} />
+        <Stat label="LIFETIME $SHOTS" value={dos.lifetimeShots.toLocaleString()} color={LIME} />
         <Stat label="CURRENT RUN" value={score} color={MAGENTA} />
+        <Stat label="TOTAL RUNS" value={dos.totalRuns} color={PURPLE_LT} />
+        <Stat label="AVG SCORE" value={dos.avgScore} color={PURPLE_LT} />
+        <Stat label="LIFETIME CATCH RATE" value={`${dos.lifetimeCatchRate}%`} color={LIME} />
+        <Stat label="LONGEST WIN STREAK" value={dos.longestStreak} color={YELLOW} />
       </div>
 
-      <div style={{
-        textAlign: "center", padding: 20,
-        border: `1px dashed ${PURPLE}`, borderRadius: 6,
-        fontFamily: READ, fontSize: 17, color: "#777", lineHeight: 1.4,
-      }}>
-        Global leaderboard ships in v3.<br/>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${YELLOW}11`, border: `1px solid ${YELLOW}66`, borderRadius: 6, padding: "12px 14px", marginBottom: 16 }}>
+        <div style={{ fontSize: 32, lineHeight: 1 }}>{dos.bestCatch.emoji}</div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: PIXEL, fontSize: 8, color: YELLOW, letterSpacing: 1, marginBottom: 3 }}>PRICIEST PEW EVER PULLED</div>
+          <div style={{ fontFamily: READ, fontSize: 19, color: "#fff" }}>{dos.bestCatch.name}</div>
+        </div>
+        <div style={{ fontFamily: PIXEL, fontSize: 14, color: LIME }}>{dos.bestCatch.value > 0 ? `+${dos.bestCatch.value}` : "—"}</div>
+      </div>
+
+      <div style={{ textAlign: "center", padding: 20, border: `1px dashed ${PURPLE}`, borderRadius: 6, fontFamily: READ, fontSize: 17, color: "#777", lineHeight: 1.4 }}>
+        Global, live board is next.<br/>
         Your $SHOTS save on this device.
       </div>
     </div>
@@ -1482,14 +1497,19 @@ const OUTRO_LINES = [
   "you played. the smile played back.",
 ];
 
-function GameOverScreen({ haterName, score, disrupted, earned, onRestart, onMenu, onPanel, activePanel }) {
+function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestart, onMenu, onPanel, activePanel }) {
   const outro = OUTRO_LINES[Math.floor(Math.random() * OUTRO_LINES.length)];
-  const rank =
-    score >= 1500 ? { title: "APEX PETTY 💅",       color: LIME }    :
-    score >= 1000 ? { title: "CERTIFIED PETTY 🔫",   color: YELLOW }  :
-    score >= 500  ? { title: "EMERGING PETTY 💜",    color: PURPLE_LT } :
-    score >= 200  ? { title: "GETTING WARMER 🌶",     color: PINK }    :
-                    { title: "PETTY IN TRAINING 🍼", color: "#777" };
+  const run = (summary && summary.lastRun) || {
+    scoreDelta: 0, isNewBest: false, catches: 0, penalties: 0,
+    catchRate: 0, streak: 0, prevBest: 0, bestCatch: { value: 0 },
+  };
+  const verdict = (summary && summary.verdict) || { headline: "THAT WAS A RUN.", sub: "" };
+  const rank = (summary && summary.rank) || getRank(score);
+  const pew = run.bestCatch && run.bestCatch.value > 0 ? run.bestCatch : null;
+  const delta = run.scoreDelta || 0;
+  const up = delta >= 0;
+  const deltaColor = up ? LIME : MAGENTA;
+  const verdictColor = run.isNewBest ? LIME : MAGENTA;
 
   return (
     <div style={{
@@ -1501,83 +1521,95 @@ function GameOverScreen({ haterName, score, disrupted, earned, onRestart, onMenu
     }}>
       <SparkleField />
       <div style={{ position: "relative", zIndex: 2, maxWidth: 400, width: "100%", textAlign: "center" }}>
-        <div style={{
-          fontFamily: PIXEL, fontSize: 11, color: MAGENTA,
-          letterSpacing: 4, marginBottom: 14,
-        }}>
+        <div style={{ fontFamily: PIXEL, fontSize: 11, color: MAGENTA, letterSpacing: 4, marginBottom: 14 }}>
           THAT'S ENOUGH FOR NOW
         </div>
 
         <div style={{
-          fontFamily: PIXEL, fontSize: 28, color: LIME,
-          letterSpacing: 4, lineHeight: 1.4, marginBottom: 8,
-          textShadow: `0 0 20px ${LIME}, 4px 4px 0 ${BLACK}`,
+          fontFamily: PIXEL, fontSize: 28, color: LIME, letterSpacing: 4,
+          lineHeight: 1.4, marginBottom: 8, textShadow: `0 0 20px ${LIME}, 4px 4px 0 ${BLACK}`,
         }}>
           MS. PETTY
         </div>
 
-        <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginBottom: 24 }}>
+        <div style={{ fontFamily: MARKER, fontSize: 15, color: PURPLE_LT, marginBottom: 18 }}>
           "{outro}"
         </div>
 
-        {/* Rank */}
+        <div style={{ fontFamily: MARKER, fontSize: 19, color: verdictColor, lineHeight: 1.25, marginBottom: 6, textShadow: `0 0 14px ${verdictColor}66` }}>
+          {verdict.headline}
+        </div>
+        {verdict.sub && (
+          <div style={{ fontFamily: READ, fontSize: 17, color: "#bbb", marginBottom: 18, lineHeight: 1.3 }}>
+            {verdict.sub}
+          </div>
+        )}
+
         <div style={{
-          display: "inline-block",
-          background: BLACK,
+          display: "inline-block", background: BLACK,
           border: `2px solid ${rank.color}`, borderRadius: 4,
-          padding: "10px 18px", marginBottom: 20,
-          boxShadow: `3px 3px 0 ${BLACK}`,
+          padding: "10px 18px", marginBottom: 18, boxShadow: `3px 3px 0 ${BLACK}`,
         }}>
-          <div style={{
-            fontFamily: PIXEL, fontSize: 11, letterSpacing: 2, color: rank.color,
-          }}>
-            {rank.title}
+          <div style={{ fontFamily: PIXEL, fontSize: 11, letterSpacing: 2, color: rank.color }}>
+            {rank.emoji} {rank.title}
           </div>
         </div>
 
-        {/* Stats card */}
-        <div style={{
-          background: BLACK, border: `2px solid ${PURPLE}`,
-          borderRadius: 6, padding: 20, marginBottom: 20,
-          textAlign: "left",
-        }}>
-          <BigStat label="$SHOTS THIS RUN"        value={score}                        color={LIME} big />
-          <BigStat label="TOXIC POSITIVITY DISRUPTED" value={disrupted}              color={MAGENTA} />
-          <BigStat label="TRUTH EXTRACTED"       value={earned}                       color={YELLOW} />
+        <div style={{ background: BLACK, border: `2px solid ${LIME}`, borderRadius: 6, padding: 18, marginBottom: 14, textAlign: "left" }}>
+          <div style={{ fontFamily: PIXEL, fontSize: 9, color: PURPLE_LT, letterSpacing: 2, marginBottom: 12 }}>
+            YOU vs YOU
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+            <div style={{ fontFamily: PIXEL, fontSize: 8, color: "#666", letterSpacing: 1 }}>$SHOTS THIS RUN</div>
+            <div style={{ fontFamily: PIXEL, fontSize: 24, color: LIME, textShadow: `0 0 12px ${LIME}88` }}>{score}</div>
+          </div>
+          <div style={{ textAlign: "right", fontFamily: PIXEL, fontSize: 9, color: deltaColor, marginTop: 4, marginBottom: 14 }}>
+            {up ? `+${delta}` : delta} vs your best ({run.prevBest})
+          </div>
+
+          {pew && (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${YELLOW}11`, border: `1px solid ${YELLOW}66`, borderRadius: 5, padding: "10px 12px", marginBottom: 14 }}>
+              <div style={{ fontSize: 30, lineHeight: 1 }}>{pew.emoji}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: PIXEL, fontSize: 8, color: YELLOW, letterSpacing: 1, marginBottom: 3 }}>PRICIEST PEW THIS RUN</div>
+                <div style={{ fontFamily: READ, fontSize: 18, color: "#fff" }}>{pew.name}</div>
+              </div>
+              <div style={{ fontFamily: PIXEL, fontSize: 14, color: LIME }}>+{pew.value}</div>
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <Cell label="BALLOONS POPPED" value={disrupted} color={MAGENTA} />
+            <Cell label="CATCH RATE" value={`${run.catchRate}%`} color={LIME} />
+            <Cell label="CLEAN CATCHES" value={run.catches} color={LIME} />
+            <Cell label="OOPS TAKEN" value={run.penalties} color={MAGENTA} />
+            <Cell label="WIN STREAK" value={run.streak} color={YELLOW} />
+            <Cell label="TRUTH EXTRACTED" value={earned} color={YELLOW} />
+          </div>
         </div>
 
-        {/* CTAs */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 14, opacity: 0.85 }}>
+          <span style={{ fontSize: 26 }}>🔫</span>
+          <span style={{ fontFamily: PIXEL, fontSize: 8, color: "#666", letterSpacing: 2 }}>YOUR PEW · SUPERKIND TOY CO.</span>
+        </div>
+
         <button onClick={onRestart} style={{
-          width: "100%", background: PURPLE,
-          color: "#fff", border: `3px solid ${LIME}`,
-          borderRadius: 4, padding: "18px",
-          fontFamily: PIXEL, fontSize: 14, letterSpacing: 3,
-          cursor: "pointer", marginBottom: 10,
-          boxShadow: `4px 4px 0 ${BLACK}, 0 0 24px ${PURPLE}88`,
+          width: "100%", background: PURPLE, color: "#fff", border: `3px solid ${LIME}`,
+          borderRadius: 4, padding: "18px", fontFamily: PIXEL, fontSize: 14, letterSpacing: 3,
+          cursor: "pointer", marginBottom: 10, boxShadow: `4px 4px 0 ${BLACK}, 0 0 24px ${PURPLE}88`,
         }}>
           🔫 PEW PEW AGAIN
         </button>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-          <button onClick={() => onPanel('shop')} style={{
-            background: BLACK, color: PINK,
-            border: `2px solid ${PINK}`, borderRadius: 3,
-            padding: "12px", fontFamily: PIXEL, fontSize: 9,
-            letterSpacing: 1, cursor: "pointer",
-          }}>🛒 SHOP</button>
-          <button onClick={() => onPanel('social')} style={{
-            background: BLACK, color: PURPLE_LT,
-            border: `2px solid ${PURPLE_LT}`, borderRadius: 3,
-            padding: "12px", fontFamily: PIXEL, fontSize: 9,
-            letterSpacing: 1, cursor: "pointer",
-          }}>🌐 SHARE</button>
+          <button onClick={() => onPanel('shop')} style={{ background: BLACK, color: PINK, border: `2px solid ${PINK}`, borderRadius: 3, padding: "12px", fontFamily: PIXEL, fontSize: 9, letterSpacing: 1, cursor: "pointer" }}>🛒 SHOP</button>
+          <button onClick={() => onPanel('social')} style={{ background: BLACK, color: PURPLE_LT, border: `2px solid ${PURPLE_LT}`, borderRadius: 3, padding: "12px", fontFamily: PIXEL, fontSize: 9, letterSpacing: 1, cursor: "pointer" }}>🌐 SHARE</button>
         </div>
 
         <button onClick={onMenu} style={{
-          width: "100%", background: "transparent",
-          color: "#666", border: `1px solid #333`,
-          borderRadius: 3, padding: "10px",
-          fontFamily: PIXEL, fontSize: 8, letterSpacing: 2,
+          width: "100%", background: "transparent", color: "#666", border: `1px solid #333`,
+          borderRadius: 3, padding: "10px", fontFamily: PIXEL, fontSize: 8, letterSpacing: 2,
           cursor: "pointer", marginTop: 8,
         }}>
           ← MAIN MENU
@@ -1589,6 +1621,15 @@ function GameOverScreen({ haterName, score, disrupted, earned, onRestart, onMenu
       )}
 
       <GlobalStyles />
+    </div>
+  );
+}
+
+function Cell({ label, value, color }) {
+  return (
+    <div style={{ background: `${color}0D`, border: `1px solid ${color}44`, borderRadius: 5, padding: "10px 10px" }}>
+      <div style={{ fontFamily: PIXEL, fontSize: 7, color: "#777", letterSpacing: 1, marginBottom: 6, lineHeight: 1.4 }}>{label}</div>
+      <div style={{ fontFamily: PIXEL, fontSize: 15, color }}>{value}</div>
     </div>
   );
 }
