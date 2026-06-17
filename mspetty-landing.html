@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MS. PETTY · BIG GIRLY PEW PEW — a HATER game by SuperKind Toy Co.</title>
+<meta name="description" content="Pop toxic positivity. Catch the consequences worth keeping. Collect a pew pew, play forever. A satirical arcade game from SuperKind Toy Co." />
+
+<meta property="og:title" content="MS. PETTY · BIG GIRLY PEW PEW" />
+<meta property="og:description" content="Pop the toxic positivity. Catch the consequences worth keeping. Collect a pew pew, play forever." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Adv/superkind%20toy%20co_ms%20petty%20v3%20logo_vintage.jpeg" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&family=Permanent+Marker&display=swap" rel="stylesheet" />
+
+<style>
+  :root {
+    --black:   #000000;
+    --deep:    #07040d;
+    --card:    #0f0a1a;
+    --lime:    #00ff6e;
+    --magenta: #ff2d9b;
+    --yellow:  #ffd93d;
+    --pink:    #ff6b9d;
+    --purple:  #7b2fbe;
+    --text:    #ede6f2;
+    --muted:   #8a7fa0;
+    --pixel:  'Press Start 2P', monospace;
+    --read:   'VT323', monospace;
+    --marker: 'Permanent Marker', cursive;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--black); color: var(--text);
+    font-family: var(--read); font-size: 20px; line-height: 1.5;
+    overflow-x: hidden; -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  .scanlines {
+    position: fixed; inset: 0; z-index: 9999; pointer-events: none;
+    background: repeating-linear-gradient(to bottom,
+      rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.16) 3px, rgba(0,0,0,0) 4px);
+    mix-blend-mode: multiply; opacity: 0.55;
+  }
+  .vignette {
+    position: fixed; inset: 0; z-index: 9998; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 40%, transparent 55%, rgba(0,0,0,0.85) 100%);
+  }
+
+  section { position: relative; padding: 92px 24px; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--pixel); font-size: 10px; letter-spacing: 4px;
+    color: var(--yellow); text-transform: uppercase; margin-bottom: 18px; display: inline-block;
+  }
+  .eyebrow::before { content: "\25B8 "; color: var(--magenta); }
+
+  .marker-head {
+    font-family: var(--marker); font-size: clamp(28px, 6vw, 52px);
+    line-height: 1.05; color: var(--lime);
+    text-shadow: 0 0 18px rgba(0,255,110,0.35); margin-bottom: 22px;
+  }
+
+  .body-copy { font-size: clamp(19px, 2.4vw, 24px); color: #cfc4dd; max-width: 64ch; }
+  .body-copy + .body-copy { margin-top: 16px; }
+  .body-copy .hi-lime { color: var(--lime); }
+  .body-copy .hi-mag  { color: var(--magenta); }
+  .body-copy .hi-yel  { color: var(--yellow); }
+
+  .credit-link { color: var(--lime); border-bottom: 1px solid rgba(0,255,110,0.5); }
+  .credit-link:hover { border-color: var(--lime); }
+
+  .reveal { opacity: 0; transform: translateY(28px); transition: opacity .7s ease, transform .7s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+
+  /* ── HERO ────────────────────────────────────────────────── */
+  .hero {
+    min-height: 100svh; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center;
+    padding: 56px 24px 72px;
+    background:
+      radial-gradient(ellipse at 50% 28%, rgba(123,47,190,0.30) 0%, transparent 60%),
+      radial-gradient(ellipse at 50% 92%, rgba(255,45,155,0.16) 0%, transparent 55%),
+      var(--black);
+  }
+  .studio-stamp {
+    display: inline-flex; align-items: center; gap: 8px;
+    border: 1px solid rgba(255,217,61,0.4); background: rgba(255,217,61,0.07);
+    padding: 6px 14px; border-radius: 3px; margin-bottom: 26px;
+    font-family: var(--pixel); font-size: 9px; letter-spacing: 2px; color: var(--yellow);
+  }
+  .lockup { font-size: 13px; letter-spacing: 0; }
+  .marquee {
+    width: min(460px, 86vw); margin: 0 auto 26px;
+    border: 2px solid rgba(0,255,110,0.45); border-radius: 14px;
+    padding: 12px; background: rgba(0,0,0,0.5);
+    box-shadow: 0 0 50px rgba(255,45,155,0.28), inset 0 0 30px rgba(0,0,0,0.7);
+    animation: marqueeGlow 4.5s ease-in-out infinite;
+  }
+  .marquee img { width: 100%; display: block; border-radius: 8px; }
+  @keyframes marqueeGlow {
+    0%,100% { box-shadow: 0 0 50px rgba(255,45,155,0.24), inset 0 0 30px rgba(0,0,0,0.7); border-color: rgba(0,255,110,0.40); }
+    50%     { box-shadow: 0 0 70px rgba(0,255,110,0.40),  inset 0 0 30px rgba(0,0,0,0.7); border-color: rgba(255,45,155,0.55); }
+  }
+  .hero .pixel-tag {
+    font-family: var(--pixel); font-size: clamp(11px, 2.4vw, 15px);
+    letter-spacing: 5px; color: var(--magenta);
+    text-shadow: 0 0 14px rgba(255,45,155,0.6); margin-bottom: 10px;
+  }
+  .hero .marker-sub { font-family: var(--marker); font-size: clamp(18px, 3.4vw, 26px); color: var(--pink); margin-bottom: 22px; }
+  .hero .tagline { font-size: clamp(18px, 2.4vw, 22px); color: #cfc4dd; max-width: 66ch; margin: 0 auto 34px; line-height: 1.55; }
+  .hero .tagline em { color: var(--lime); font-style: normal; }
+
+  .cta-row { display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; }
+  .btn {
+    font-family: var(--pixel); font-size: 12px; letter-spacing: 2px;
+    padding: 18px 26px; border-radius: 4px; cursor: pointer; border: 2px solid;
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease; display: inline-block;
+  }
+  .btn:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+  .btn-primary { background: var(--purple); color: #fff; border-color: var(--lime); box-shadow: 5px 5px 0 #000, 0 0 26px rgba(123,47,190,0.6); }
+  .btn-primary:hover { transform: translate(-2px,-2px); box-shadow: 7px 7px 0 #000, 0 0 34px rgba(0,255,110,0.55); }
+  .btn-ghost { background: #000; color: var(--lime); border-color: var(--lime); box-shadow: 3px 3px 0 rgba(0,255,110,0.25); }
+  .btn-ghost:hover { transform: translate(-2px,-2px); background: rgba(0,255,110,0.08); }
+
+  .rail-note { margin-top: 30px; font-family: var(--pixel); font-size: 8px; letter-spacing: 2px; color: var(--muted); line-height: 2.2; max-width: 62ch; }
+
+  /* ── LORE ────────────────────────────────────────────────── */
+  .lore { background: linear-gradient(180deg, var(--black) 0%, var(--deep) 100%); }
+  .lore .pullquote {
+    font-family: var(--marker); font-size: clamp(22px, 4vw, 34px);
+    color: var(--yellow); border-left: 4px solid var(--magenta);
+    padding-left: 22px; margin-top: 34px; max-width: 26ch; line-height: 1.2;
+  }
+
+  /* ── HOW IT PLAYS ────────────────────────────────────────── */
+  .play { background: var(--deep); }
+  .scoring { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-top: 34px; }
+  .score-card { border: 2px solid; border-radius: 12px; padding: 24px 22px; background: var(--card); }
+  .score-card.shots { border-color: var(--lime);    box-shadow: 0 0 30px rgba(0,255,110,0.12); }
+  .score-card.lolz  { border-color: var(--magenta); box-shadow: 0 0 30px rgba(255,45,155,0.12); }
+  .score-card.ego   { border-color: var(--yellow);  box-shadow: 0 0 30px rgba(255,217,61,0.12); }
+  .score-card .tag { font-family: var(--pixel); font-size: 16px; letter-spacing: 1px; margin-bottom: 6px; }
+  .score-card.shots .tag { color: var(--lime); }
+  .score-card.lolz  .tag { color: var(--magenta); }
+  .score-card.ego   .tag { color: var(--yellow); }
+  .score-card .sub { font-family: var(--pixel); font-size: 8px; letter-spacing: 2px; color: var(--muted); margin-bottom: 14px; }
+  .score-card p { font-size: 19px; color: #cabfda; }
+  .score-card p b { color: var(--yellow); }
+
+  /* ── THE WORLD ───────────────────────────────────────────── */
+  .world { background: linear-gradient(180deg, var(--deep) 0%, var(--black) 100%); }
+  .gang-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; margin-top: 30px; align-items: start; }
+  .gang-card { border: 2px solid var(--magenta); border-radius: 12px; overflow: hidden; background: var(--card); box-shadow: 0 0 34px rgba(255,45,155,0.18); }
+  .gang-card img { width: 100%; display: block; }
+  .gang-card .cap { padding: 14px 16px 18px; }
+  .gang-card .cap .t { font-family: var(--pixel); font-size: 11px; letter-spacing: 1px; color: var(--lime); margin-bottom: 6px; }
+  .gang-card .cap .d { font-family: var(--read); font-size: 18px; color: var(--muted); }
+
+  /* ── COLLECT A PEW PEW ───────────────────────────────────── */
+  .collect { background: var(--black); }
+  .key-card {
+    border: 2px solid var(--yellow); border-radius: 12px; background: rgba(255,217,61,0.05);
+    padding: 26px 28px; margin: 26px 0 44px; box-shadow: 0 0 34px rgba(255,217,61,0.12);
+  }
+  .key-card .key-head { font-family: var(--pixel); font-size: 13px; letter-spacing: 2px; color: var(--yellow); margin-bottom: 14px; }
+  .key-card p { font-size: 21px; color: #d8cfe2; max-width: 60ch; }
+  .key-card p b { color: var(--lime); }
+
+  .arsenal { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .pew {
+    border: 2px solid var(--purple); border-radius: 12px; background: var(--card);
+    overflow: hidden; display: flex; flex-direction: column;
+    transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+  }
+  .pew:hover { transform: translateY(-6px); border-color: var(--lime); box-shadow: 0 14px 40px rgba(0,255,110,0.18); }
+  .pew .art { position: relative; background: radial-gradient(ellipse at 50% 45%, rgba(123,47,190,0.25), #000 75%); aspect-ratio: 1/1; display: flex; align-items: center; justify-content: center; }
+  .pew .art img { width: 100%; height: 100%; object-fit: contain; }
+  .pew .era { position: absolute; top: 12px; right: 12px; font-family: var(--pixel); font-size: 8px; letter-spacing: 1px; color: #000; background: var(--yellow); padding: 5px 8px; border-radius: 3px; }
+  .pew .onchain { position: absolute; top: 12px; left: 12px; font-family: var(--pixel); font-size: 8px; letter-spacing: 1px; color: #000; background: var(--lime); padding: 5px 8px; border-radius: 3px; z-index: 2; }
+  .pew .infinite { font-family: var(--pixel); font-size: 8px; letter-spacing: 1px; color: var(--yellow); }
+  .pew .meta { padding: 18px 18px 22px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .pew .name { font-family: var(--pixel); font-size: 14px; letter-spacing: 1px; color: var(--lime); }
+  .pew .blurb { font-size: 19px; color: #c4b9d4; flex: 1; }
+  .pew .blurb em { color: var(--magenta); font-style: normal; }
+  .pew .pew-cta { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+  .pew .pew-cta a { text-align: center; font-family: var(--pixel); font-size: 9px; letter-spacing: 1px; padding: 12px 8px; border-radius: 4px; border: 2px solid; transition: background .15s ease, transform .15s ease; }
+  .pew .pew-cta a:focus-visible { outline: 3px solid var(--yellow); outline-offset: 2px; }
+  .pew .buy { background: var(--magenta); color: #000; border-color: var(--magenta); }
+  .pew .buy:hover { transform: translateY(-2px); }
+  .pew .sea { background: #000; color: var(--pink); border-color: var(--pink); }
+  .pew .sea:hover { background: rgba(255,107,157,0.12); transform: translateY(-2px); }
+
+  .insert { text-align: center; margin-top: 46px; font-family: var(--pixel); font-size: clamp(12px, 2.6vw, 16px); letter-spacing: 3px; color: var(--lime); }
+  .insert .blink { color: var(--magenta); animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ── FOOTER ──────────────────────────────────────────────── */
+  footer { background: var(--black); border-top: 2px solid rgba(123,47,190,0.4); padding: 56px 24px; text-align: center; }
+  .foot-stamp { display: inline-flex; align-items: center; gap: 8px; font-family: var(--pixel); font-size: 10px; letter-spacing: 2px; color: var(--yellow); margin-bottom: 18px; }
+  .foot-stamp a { color: inherit; border-bottom: 1px solid rgba(255,217,61,0.5); }
+  .foot-stamp a:hover { border-color: var(--yellow); }
+  .foot-links { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; margin-bottom: 22px; }
+  .foot-links a { font-family: var(--pixel); font-size: 9px; letter-spacing: 1px; color: var(--lime); border-bottom: 1px solid transparent; padding-bottom: 2px; }
+  .foot-links a:hover { border-color: var(--lime); }
+  .foot-fine { font-family: var(--pixel); font-size: 7px; letter-spacing: 2px; color: var(--muted); line-height: 2.6; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .reveal { opacity: 1; transform: none; }
+    html { scroll-behavior: auto; }
+  }
+  @media (max-width: 600px) { section { padding: 64px 18px; } }
+</style>
+</head>
+<body>
+
+<div class="scanlines"></div>
+<div class="vignette"></div>
+
+<!-- ══ HERO ══════════════════════════════════════════════════ -->
+<header class="hero">
+  <div class="studio-stamp"><span class="lockup">🎈✨🔫</span> SUPERKIND TOY CO. · GADGETS FOR VILLAINS</div>
+
+  <div class="marquee">
+    <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Adv/superkind%20toy%20co_ms%20petty%20v3%20logo_vintage.jpeg" alt="Ms. Petty Arcade — Big Girly Pew Pew · Laser Operated · SuperKind Toy Co." />
+  </div>
+
+  <div class="pixel-tag">BIG GIRLY PEW PEW</div>
+  <div class="marker-sub">a HATER game</div>
+  <p class="tagline">Pop the toxic positivity. Catch the <em>positive consequences</em>: the cheers, the bread, the cheese, the champagne toasts... avoid representations of the negative consequences - the salt, the nuts, the knives (in the back), the cigarettes - another expensive inconvenient vice you don't need; Dodge the scissors - don't get cut; catch the microphone and speak your truth.... Stay sharp, and educate yourself the consequence change at every level.</p>
+
+  <div class="cta-row">
+    <a target="_blank" rel="noopener noreferrer" class="btn btn-primary" href="https://mspetty.blaqqat.games">🎈✨🔫 ENTER THE ARCADE</a>
+    <a class="btn btn-ghost" href="#collect">COLLECT A PEW PEW ↓</a>
+  </div>
+
+  <div class="rail-note">POWERED BY <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://landing.superkindtoyco.lol">SUPERKIND TOY CO</a> · <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://landing.blaqqat.games">A BLAQQAT BUIDL</a> · MUSIC BY <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://discography.endodeca.vip">ENDODECA</a> APPEARS COURTESY OF <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://music-for-games.supremeracketrecords.trade">SUPREME RACKET RECORDS</a></div>
+</header>
+
+<!-- ══ LORE ══════════════════════════════════════════════════ -->
+<section class="lore">
+  <div class="wrap">
+    <div class="eyebrow reveal">The Lore</div>
+    <h2 class="marker-head reveal">where the petty came from</h2>
+
+    <p class="body-copy reveal">
+      <span class="hi-lime">Ms. Petty</span> wasn't born petty. She was <span class="hi-mag">made</span> petty —
+      by a thousand fake smiles, performative niceties, and "hellos" that meant the opposite. Casual sabotage
+      dressed up as help; her own kindness on backorder and sold back to her on a paid waitlist, at a markup.
+    </p>
+    <p class="body-copy reveal">
+      One day she stopped pretending not to notice all the comments and thought-forms, as fleeting as a balloon
+      in a windy city. She ordered up a glittery laser pew pew from <span class="hi-yel">SuperKind Toy Co.</span> —
+      the most reputable private retailer for a mean-spirited world, as the advertisement had put it, and they did
+      not oversell. As soon as it arrived she put down her old identity to become Ms. Petty, and started popping
+      every comment, thought-form, and illusion in sight. What fell out wasn't always pretty. But she could choose
+      what to make of the consequences with her timely reactions — and <span class="hi-lime">discernment beats
+      volume</span> every single time.
+    </p>
+    <p class="body-copy reveal">
+      You're her now. You're Ms. Petty. You extract the potential the moment was hiding. You accrue
+      <span class="hi-lime">$SHOTS</span> for every positive capture, and you lose shots for the negative
+      consequences you grab by mistake.
+    </p>
+
+    <blockquote class="pullquote reveal">discernment beats volume. every single time.</blockquote>
+  </div>
+</section>
+
+<!-- ══ HOW IT PLAYS ══════════════════════════════════════════ -->
+<section class="play">
+  <div class="wrap">
+    <div class="eyebrow reveal">How It Plays</div>
+    <h2 class="marker-head reveal">catch what's real. dodge what cuts.</h2>
+
+    <p class="body-copy reveal">
+      Pop the toxic positivity. Catch the <span class="hi-lime">positive consequences</span> — the cheers, the
+      bread, the cheese, the champagne toasts. Avoid the <span class="hi-mag">negative</span> ones: the salt, the
+      nuts, the knives (in the back), the cigarettes (another expensive, inconvenient vice you don't need). Dodge
+      the scissors — don't get cut. Catch the microphone and speak your truth. Stay sharp, and educate yourself:
+      the consequences change at every level.
+    </p>
+
+    <div class="scoring">
+      <div class="score-card shots reveal">
+        <div class="tag">$SHOTS</div>
+        <div class="sub">WHAT YOU MEANT TO DO</div>
+        <p>Your real score. Every consequence you actually grab — <b>positives lift you, negatives you fumbled into your hands drag you down</b>. The net of your aim.</p>
+      </div>
+      <div class="score-card lolz reveal">
+        <div class="tag">$LOLZ</div>
+        <div class="sub">WHAT YOU FUMBLED</div>
+        <p>Your blooper reel. Pop a balloon, a violin worth <b>+20</b> falls out, you let it hit the floor? That 20 doesn't vanish — it lands in your $LOLZ. The higher it climbs, the harder you fumbled. lmaooo.</p>
+      </div>
+      <div class="score-card ego reveal">
+        <div class="tag">EGO DEATH</div>
+        <div class="sub">&minus;30 · GAME OVER</div>
+        <p>Take a <b>&minus;30</b> ego death hit, or let the clock run out — that's it. Time's up. And with <b>no pew pew</b>, there's no continue. The smile won that round.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══ THE WORLD ═════════════════════════════════════════════ -->
+<section class="world">
+  <div class="wrap">
+    <div class="eyebrow reveal">The World</div>
+    <h2 class="marker-head reveal">neon, attitude, and a gang that arms up</h2>
+
+    <p class="body-copy reveal">
+      Eleven levels, each one a different mood — <span class="hi-lime">Genesis</span>,
+      <span class="hi-mag">Pride Mode</span>, the <span class="hi-yel">Aura Field</span>, Skelevaggio, the 777 Vegas
+      strip. The world rotates fast. Quick hits, not long marathons. Speed, risk, reward, and the kind of
+      psychological tension that makes a smile glitch in real life.
+    </p>
+
+    <div class="gang-gallery">
+      <figure class="gang-card reveal">
+        <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/Sexy%20Red.gif" alt="Big Phat Red — close up" loading="lazy" />
+        <figcaption class="cap">
+          <div class="t">BIG PHAT RED, IN MOTION</div>
+          <div class="d">the close-up. the smile never stood a chance.</div>
+        </figcaption>
+      </figure>
+      <figure class="gang-card reveal">
+        <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Adv/Big%20Phat%20Red_With%20Tasiobannne.jpeg" alt="Big Phat Red — SuperKind Toy Co." loading="lazy" />
+        <figcaption class="cap">
+          <div class="t">BIG PHAT RED</div>
+          <div class="d">the one the smiles made. one glitter tear, zero regrets.</div>
+        </figcaption>
+      </figure>
+      <figure class="gang-card reveal">
+        <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/Double%20Trouble%20Ray%20Ray.gif" alt="Double Trouble — double-ray pew pew" loading="lazy" />
+        <figcaption class="cap">
+          <div class="t">DOUBLE TROUBLE</div>
+          <div class="d">the double-ray pew pew. two beams, zero mercy.</div>
+        </figcaption>
+      </figure>
+      <figure class="gang-card reveal">
+        <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Adv/Big%20Phat%20Red_Luxury%20Pop%20Up_Tasiobannne.jpeg" alt="SuperKind Toy Co. luxury pop-up" loading="lazy" />
+        <figcaption class="cap">
+          <div class="t">THE LUXURY POP-UP</div>
+          <div class="d">gadgets for villains, retail grade. the pew pew on the pedestal.</div>
+        </figcaption>
+      </figure>
+      <figure class="gang-card reveal">
+        <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/SuperKind%20Toy%20Co_T10%20Installation%20Demo%20Display.jpeg" alt="SuperKind Toy Co. T10 installation showroom" loading="lazy" />
+        <figcaption class="cap">
+          <div class="t">THE T10 INSTALLATION</div>
+          <div class="d">pew pews under glass. showroom-grade menace.</div>
+        </figcaption>
+      </figure>
+      <figure class="gang-card reveal">
+        <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/SuperKind%20Toy%20Co_Super%20Blsum%20Adv.jpeg" alt="SuperKind Toy Co. Super Blaum showroom" loading="lazy" />
+        <figcaption class="cap">
+          <div class="t">THE SUPER BLAUM FLOOR</div>
+          <div class="d">showroom floor, model included.</div>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ══ COLLECT A PEW PEW ═════════════════════════════════════ -->
+<section class="collect" id="collect">
+  <div class="wrap">
+    <div class="eyebrow reveal">The Arsenal</div>
+    <h2 class="marker-head reveal">collect a pew pew. play forever.</h2>
+
+    <div class="key-card reveal">
+      <div class="key-head">▸ HOW THE KEY WORKS</div>
+      <p>
+        Here's the deal. The game checks your wallet on <b>Base</b>. Hold a SuperKind pew pew and you play
+        <b>infinite</b> — no clock breathing down your neck. No pew pew? You run on the timer like everybody else.
+        The pew pew is the key. SuperKind minted the keys. Go get one.
+      </p>
+    </div>
+
+    <div class="arsenal">
+
+      <!-- FREQ RAY · token 5 -->
+      <article class="pew reveal">
+        <div class="art">
+          <span class="onchain">NOW ONCHAIN</span>
+          <span class="era">ERA · ATOMIC</span>
+          <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/ToyCo%20UpSynch%20T10.gif" alt="Freq Ray — SuperKind Toy Co. laser pew pew" loading="lazy" />
+        </div>
+        <div class="meta">
+          <div class="name">FREQ RAY</div>
+          <div class="infinite">⚡ ENABLES INFINITE PLAY</div>
+          <div class="blurb">Your personal laser of reckless innovation. Fire a concentrated beam of shut-the-hell-up energy at anyone ruining your day. <em>Banned in 37 countries. For good reason.</em></div>
+          <div class="pew-cta">
+            <a target="_blank" rel="noopener noreferrer" class="buy" href="https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/5">COLLECT ON TRANSIENT LABS</a>
+            <a target="_blank" rel="noopener noreferrer" class="sea" href="https://opensea.io/assets/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/5">OPENSEA</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- BIG MOUTH T3 · token 6 -->
+      <article class="pew reveal">
+        <div class="art">
+          <span class="onchain">NOW ONCHAIN</span>
+          <span class="era">ERA · AQUARIUS</span>
+          <img src="https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/ToyCo%20Spacemaker%20T99_2.gif" alt="Big Mouth T3 — SuperKind Toy Co. laser pew pew" loading="lazy" />
+        </div>
+        <div class="meta">
+          <div class="name">BIG MOUTH T3</div>
+          <div class="infinite">⚡ ENABLES INFINITE PLAY</div>
+          <div class="blurb">For the villain whose monologue deserves a laser show. Maximum Overkill Beam. Amplified pew-pew straight from the bowels of chaos. <em>Handling bitches: priceless.</em></div>
+          <div class="pew-cta">
+            <a target="_blank" rel="noopener noreferrer" class="buy" href="https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/6">COLLECT ON TRANSIENT LABS</a>
+            <a target="_blank" rel="noopener noreferrer" class="sea" href="https://opensea.io/assets/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/6">OPENSEA</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- POINT GUARD T4 · token 7 -->
+      <article class="pew reveal">
+        <div class="art">
+          <span class="onchain">NOW ONCHAIN</span>
+          <span class="era">ERA · AQUARIUS</span>
+          <img src="https://img.transient.xyz/?output=webp&amp;url=https%3A%2F%2Fipfs.io%2Fipfs%2Fbafybeiclfl3oehjrotoyssosvcdskxodobrvrlkl4s5qqo67wmslsxm5c4%2Fthumbnail&amp;w=1024" alt="Point Guard T4 — SuperKind Toy Co. laser pew pew" loading="lazy" />
+        </div>
+        <div class="meta">
+          <div class="name">POINT GUARD T4</div>
+          <div class="infinite">⚡ ENABLES INFINITE PLAY</div>
+          <div class="blurb">Why talk when you can terrify? One burst and suddenly everyone's very interested in your opinions too. <em>Conflict resolution, beam-delivered.</em></div>
+          <div class="pew-cta">
+            <a target="_blank" rel="noopener noreferrer" class="buy" href="https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/7">COLLECT ON TRANSIENT LABS</a>
+            <a target="_blank" rel="noopener noreferrer" class="sea" href="https://opensea.io/assets/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/7">OPENSEA</a>
+          </div>
+        </div>
+      </article>
+
+      <!-- THE DISRUPTOR DISRUPTOR 9000 · token 4 -->
+      <article class="pew reveal">
+        <div class="art">
+          <span class="onchain">NOW ONCHAIN</span>
+          <span class="era">ERA · ATOMIC</span>
+          <img src="https://img.transient.xyz/?output=webp&amp;url=https%3A%2F%2Fipfs.io%2Fipfs%2Fbafybeieuhgmwx5x5t6phibjbagqy45bh2flrezyigakn2i3mhiyn3tmqpu%2Fthumbnail&amp;w=1024" alt="The Disruptor Disruptor 9000 — SuperKind Toy Co. laser pew pew" loading="lazy" />
+        </div>
+        <div class="meta">
+          <div class="name">DISRUPTOR 9000</div>
+          <div class="infinite">⚡ ENABLES INFINITE PLAY</div>
+          <div class="blurb">The first ray shooter that doesn't look futuristic but delivers anyway. Fires concentrated beams of "Nope" at whatever stands in your way. <em>Rechargeable with sarcastic energy.</em></div>
+          <div class="pew-cta">
+            <a target="_blank" rel="noopener noreferrer" class="buy" href="https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/4">COLLECT ON TRANSIENT LABS</a>
+            <a target="_blank" rel="noopener noreferrer" class="sea" href="https://opensea.io/assets/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf/4">OPENSEA</a>
+          </div>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="insert reveal">INFINITE &#8734; PLAY &nbsp;·&nbsp; <span class="blink">ADD LASER PEW PEW TO YOUR ARSENAL</span></div>
+  </div>
+</section>
+
+<!-- ══ FOOTER ════════════════════════════════════════════════ -->
+<footer>
+  <div class="foot-stamp"><span class="lockup">🎈✨🔫</span> <a target="_blank" rel="noopener noreferrer" href="https://landing.superkindtoyco.lol">SUPERKIND TOY CO.</a> · GADGETS FOR VILLAINS</div>
+  <div class="foot-links">
+    <a target="_blank" rel="noopener noreferrer" href="https://mspetty.blaqqat.games">PLAY</a>
+    <a href="#collect">COLLECT A PEW PEW</a>
+    <a target="_blank" rel="noopener noreferrer" href="https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf">THE ARSENAL</a>
+    <a target="_blank" rel="noopener noreferrer" href="https://warpcast.com/blaqqat">FARCASTER</a>
+  </div>
+  <div class="foot-fine">
+    <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://landing.blaqqat.games">A BLAQQAT BUIDL</a> &nbsp;//&nbsp; MUSIC BY <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://discography.endodeca.vip">ENDODECA</a> APPEARS COURTESY OF <a target="_blank" rel="noopener noreferrer" class="credit-link" href="https://music-for-games.supremeracketrecords.trade">SUPREME RACKET RECORDS</a><br />
+    SHE'S NOT MAD. JUST DISAPPOINTED.
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var els = document.querySelectorAll('.reveal');
+    if (!('IntersectionObserver' in window)) { els.forEach(function (el) { el.classList.add('in'); }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) { entry.target.classList.add('in'); io.unobserve(entry.target); }
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    els.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+
+</body>
+</html>
