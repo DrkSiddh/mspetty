@@ -31,7 +31,9 @@ export async function isHolder(address) {
   const result = await rpcCall("0x70a08231" + addrParam(address)); // balanceOf
   return BigInt(result) > 0n;
 }
-export async function getLaserColor(address) {
+// Highest token id owned (tiebreak: highest wins) → { id, color }.
+// id is null when the address holds nothing.
+export async function getHeldToken(address) {
   const want = address.toLowerCase();
   const supply = Number(BigInt(await rpcCall("0x18160ddd"))); // totalSupply
   let best = null;
@@ -42,5 +44,12 @@ export async function getLaserColor(address) {
       if (owner.toLowerCase() === want) { if (best === null || id > best) best = id; }
     } catch (_) {}
   }
-  return best === null ? DEFAULT_LASER : (LASER_COLORS[best] || DEFAULT_LASER);
+  return {
+    id: best,
+    color: best === null ? DEFAULT_LASER : (LASER_COLORS[best] || DEFAULT_LASER),
+  };
+}
+
+export async function getLaserColor(address) {
+  return (await getHeldToken(address)).color;
 }

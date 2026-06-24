@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { recordRun, getDossier, getRank } from "./pettyStats";
-import { connectWallet, isHolder, getLaserColor } from "./superkindGate";
+import { connectWallet, isHolder, getLaserColor, getHeldToken } from "./superkindGate";
+import { submitGameplayShare, submitGrantApplication, submitRun, getLeaderboard } from "./supabaseClient";
 
 // ============================================================
 // MS. PETTY — BIG GIRLY PEW PEW · a HATER game
@@ -24,6 +25,74 @@ const CARD    = "#0F0A1A";
 const PIXEL  = "'Press Start 2P', monospace";
 const READ   = "'VT323', monospace";
 const MARKER = "'Permanent Marker', cursive";
+
+// ── BRAND ASSETS · SUPERKIND TOY CO. ──────────────────────────
+const LOCKUP = "🎈✨🔫"; // glued emoji lockup — no spaces (matches landing.html)
+const VINTAGE_LOGO = "https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Adv/superkind%20toy%20co_ms%20petty%20v3%20logo_vintage.jpeg";
+const LOGO_ALT = "MS. PETTY — Big Girly Pew Pew · Laser Operated · SuperKind Toy Co.";
+
+// Animated pew-pew card art
+const PEW_GIFS = {
+  upsynch:      "https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/ToyCo%20UpSynch%20T10.gif",
+  spacemaker:   "https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/ToyCo%20Spacemaker%20T99_2.gif",
+  doubletrouble:"https://qycdhyhhxruoibsxrxfq.supabase.co/storage/v1/object/public/Game%20Experience%20Assets/Laser%20Pew%20Pews/Double%20Trouble%20Ray%20Ray.gif",
+};
+
+const TRANSIENT_CONTRACT = "0x3bd644bb69e70a9b57e4213b977257aea9ca45bf";
+const transientToken = (id) => `https://www.transient.xyz/nfts/base/${TRANSIENT_CONTRACT}/${id}`;
+
+// Onchain pew pews — Transient tokens. // TODO(confirm): GIF↔token mapping is a guess.
+const ONCHAIN_PEWS = [
+  { id: 5, name: "FREQ RAY",                     art: PEW_GIFS.upsynch,       animated: true },
+  { id: 6, name: "BIG MOUTH T3",                 art: PEW_GIFS.spacemaker,    animated: true },
+  { id: 7, name: "POINT GUARD T4",               art: PEW_GIFS.doubletrouble, animated: true },
+  // token 4 name fetched from Transient ("The Disruptor Disruptor 9000"); fallback "SUPERKIND PEW PEW".
+  // TODO(confirm): no 4th GIF supplied — using the Transient static (og-image) art for the remainder.
+  { id: 4, name: "THE DISRUPTOR DISRUPTOR 9000", art: `${transientToken(4)}/og-image`, animated: false },
+];
+
+// Farcaster — @maxximillian. Compose intent keeps the existing warpcast host.
+const FARCASTER_PROFILE = "https://farcaster.xyz/maxximillian";
+const CAST_LINES = [
+  "Hey @maxximillian I just played MS PETTY! 🎈✨🔫 toxic positivity = disrupted.",
+  "just popped off in MS PETTY 🎈✨🔫 I doubt any of my friends can beat my high score.",
+  "MS PETTY got me lasering balloons 🎈✨🔫 @maxximillian what did you do to me lol",
+  "extracted the truth in MS PETTY 🎈✨🔫 your fave game is shaking. @maxximillian",
+  "new personal best in MS PETTY 🎈✨🔫 the smile lost that round. @maxximillian",
+];
+const randomCastURL = () => {
+  const line = CAST_LINES[Math.floor(Math.random() * CAST_LINES.length)];
+  return `https://warpcast.com/~/compose?text=${encodeURIComponent(line)}`;
+};
+
+// Footer / credits (parity with landing.html)
+const LINK_SUPERKIND = "https://landing.superkindtoyco.lol";
+const LINK_BLAQQAT   = "https://landing.blaqqat.games";
+const LINK_ENDODECA  = "https://discography.endodeca.vip";
+const LINK_SRR       = "https://music-for-games.supremeracketrecords.trade";
+const LINK_ABOUT     = "https://mspetty.blaqqat.games/landing.html";
+const LINK_CASH_ENDODECA = "https://cash.app/$Endodeca";
+const LINK_CASH_BLAQQAT  = "https://cash.app/$BlaqqatBuilds";
+
+// ── AUDIO (no SDK — fire-and-forget new Audio(), live files in /public/sounds) ─
+const SFX_VOL = 0.55;
+function playSound(src) {
+  try {
+    const a = new Audio(src);
+    a.volume = SFX_VOL;
+    a.play().catch(() => {}); // blocked autoplay fails silently
+  } catch (_) {}
+}
+// Laser pew — only when a token (laser) is held. No token = pea shooter = silence.
+// tokenId is the highest token id owned (same id that picks the laser color).
+function playPew(tokenId) {
+  if (!tokenId) return;
+  playSound(`/sounds/laser-token${tokenId}.mp3`);
+}
+// Balloon burst — every pop, for ALL players (holder or not).
+function playBalloonBurst() { playSound("/sounds/balloon-burst.mp3"); }
+// Menu / login button hover.
+function playButtonHover() { playSound("/sounds/button-hover.mp3"); }
 
 // ── LEVEL SYSTEM (range-based, all 11) ────────────────────────
 const LEVELS = [
@@ -361,11 +430,12 @@ export default function MsPetty() {
   // ── SUPERKIND NFT GATE (Phase 1) ──────────────────────────────
   const [walletAddress, setWalletAddress] = useState(null);
   const [holder, setHolder] = useState(false);
+  const [heldTokenId, setHeldTokenId] = useState(null); // highest token id owned (drives laser color + pew sound)
   const [laserColor, setLaserColor] = useState(LIME); // default = existing pew/laser color
   const [walletNotice, setWalletNotice] = useState(null);
 
   const prevLevelRef = useRef(null);
-  const runStatsRef = useRef({ catches: 0, penalties: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } });
+  const runStatsRef = useRef({ catches: 0, penalties: 0, lolz: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } });
   const balloonIdRef = useRef(0);
   const itemIdRef = useRef(0);
 
@@ -400,7 +470,7 @@ export default function MsPetty() {
       const summary = recordRun({
         score, earned, disrupted: totalDisrupted,
         level: getLevel(score).name,
-        catches: rs.catches, penalties: rs.penalties,
+        catches: rs.catches, penalties: rs.penalties, lolz: rs.lolz,
         bestCatch: rs.bestCatch, worstPenalty: rs.worstPenalty,
       });
       setRunSummary(summary);
@@ -410,6 +480,37 @@ export default function MsPetty() {
     const t = setInterval(() => setTimeLeft(t => t - 1), 1000);
     return () => clearInterval(t);
   }, [screen, timeLeft, paused, earned, score, holder, totalDisrupted]);
+
+  // EGO DEATH — cumulative score ≤ -30 ends the run. Most games end at 0; this
+  // one ends at -30. Universal lose condition: applies to everyone, holders too.
+  // TODO(confirm): "no pew pew held → no continue" — there is no continue system
+  // in the game at all yet, so ego death simply ends the run for all players.
+  useEffect(() => {
+    if (screen !== "game") return;
+    if (score <= -30) {
+      const rs = runStatsRef.current;
+      const summary = recordRun({
+        score, earned, disrupted: totalDisrupted,
+        level: getLevel(score).name,
+        catches: rs.catches, penalties: rs.penalties, lolz: rs.lolz,
+        bestCatch: rs.bestCatch, worstPenalty: rs.worstPenalty,
+      });
+      setRunSummary(summary);
+      setScreen("gameover");
+    }
+  }, [score, screen, earned, totalDisrupted]);
+
+  // Push each finished run to the live Supabase leaderboard (fire-and-forget).
+  useEffect(() => {
+    if (screen !== "gameover" || !runSummary) return;
+    const lr = runSummary.lastRun || {};
+    submitRun({
+      haterName,
+      score: lr.score != null ? lr.score : score,
+      lolz: lr.lolz || 0,
+      level: lr.level || null,
+    });
+  }, [screen, runSummary]);
 
   // Balloon spawner
   useEffect(() => {
@@ -444,15 +545,17 @@ export default function MsPetty() {
     const raf = setInterval(() => {
       setFallingItems(prev => {
         const kept = [];
-        let missedGood = false, missedX = 50;
+        let missedGood = false, missedX = 50, missedLolz = 0;
         for (const item of prev) {
           const newY = item.y + ITEM_FALL_SPEED;
           if (newY >= 110) {
-            if (item.value > 0) { missedGood = true; missedX = item.x; }
+            // Positive item fell uncaught → $LOLZ (the laugh you let get away).
+            if (item.value > 0) { missedGood = true; missedX = item.x; missedLolz += item.value; }
           } else {
             kept.push({ ...item, y: newY });
           }
         }
+        if (missedLolz > 0) runStatsRef.current.lolz += missedLolz;
         if (missedGood && !holder) {
           setTimeLeft(t => Math.max(0, t - 2));
           setFlash({ text: "the smile won that round −2s", color: MAGENTA, x: missedX, y: 80 });
@@ -478,6 +581,10 @@ export default function MsPetty() {
     const item = randomFrom(pool);
     const id = itemIdRef.current++;
 
+    // SFX: laser pew (holders only) + balloon burst (everyone).
+    playPew(heldTokenId);
+    playBalloonBurst();
+
     setFallingItems(prev => [...prev, {
       id, emoji: item.emoji, value: item.value,
       x: balloon.x, y: balloon.y, name: item.name,
@@ -488,14 +595,15 @@ export default function MsPetty() {
     const popId = Date.now() + Math.random();
     setPopEffects(prev => [...prev, { id: popId, x: balloon.x, y: balloon.y, color: holder ? laserColor : balloon.color }]);
     setTimeout(() => setPopEffects(prev => prev.filter(p => p.id !== popId)), 600);
-  }, [score, holder, laserColor]);
+  }, [score, holder, laserColor, heldTokenId]);
 
   // Catch a falling item
   const catchItem = useCallback((item, e) => {
     if (e) { e.stopPropagation(); e.preventDefault(); }
     setFallingItems(prev => prev.filter(i => i.id !== item.id));
     const val = item.value;
-    setScore(s => Math.max(0, s + val));
+    // No floor at 0 — the score CAN go negative so EGO DEATH (≤ -30) can trigger.
+    setScore(s => s + val);
     if (val > 0) setEarned(e2 => e2 + val);
 
     const rs = runStatsRef.current;
@@ -534,7 +642,7 @@ export default function MsPetty() {
     setMenuOpen(false);
     setActivePanel(null);
     prevLevelRef.current = null;
-    runStatsRef.current = { catches: 0, penalties: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } };
+    runStatsRef.current = { catches: 0, penalties: 0, lolz: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } };
     setRunSummary(null);
     setScreen("game");
   };
@@ -556,11 +664,13 @@ export default function MsPetty() {
       setHolder(isH);
       if (isH) {
         try {
-          const color = await getLaserColor(addr);
+          const { id, color } = await getHeldToken(addr);
+          setHeldTokenId(id);            // drives the pew sound (laser-token{id}.mp3)
           setLaserColor(color || LIME);
-        } catch (_) { setLaserColor(LIME); }
+        } catch (_) { setHeldTokenId(null); setLaserColor(LIME); }
         setWalletNotice({ ok: true, text: "∞ UNLIMITED · SUPERKIND HOLDER" });
       } else {
+        setHeldTokenId(null); // no laser → pea shooter → silent pew
         setWalletNotice({ ok: false, text: "no SuperKind found · normal play" });
       }
     } catch (err) {
@@ -574,8 +684,8 @@ export default function MsPetty() {
 
   // ── ROUTE TO SCREENS ────────────────────────────────────────
   if (screen === "login")    return <LoginScreen onLogin={handleLogin} onConnectWallet={handleConnectWallet} holder={holder} laserColor={laserColor} notice={walletNotice} />;
-  if (screen === "intro")    return <IntroScreen haterName={haterName} onStart={startGame} onPanel={setActivePanel} activePanel={activePanel} />;
-  if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} summary={runSummary} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} />;
+  if (screen === "intro")    return <IntroScreen haterName={haterName} onStart={startGame} onPanel={setActivePanel} activePanel={activePanel} holder={holder} />;
+  if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} summary={runSummary} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} holder={holder} />;
 
   // ── GAME SCREEN ─────────────────────────────────────────────
   const timeColor = holder ? laserColor : (timeLeft <= 10 ? MAGENTA : timeLeft <= 20 ? YELLOW : LIME);
@@ -806,6 +916,7 @@ export default function MsPetty() {
           onClose={() => { setActivePanel(null); setPaused(false); }}
           haterName={haterName}
           score={score}
+          holder={holder}
         />
       )}
 
@@ -882,7 +993,7 @@ function LoginScreen({ onLogin, onConnectWallet, holder, laserColor, notice }) {
           }}
           autoFocus
         />
-        <button onClick={() => onLogin(name)} style={{
+        <button onClick={() => onLogin(name)} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
           width: "100%", background: PURPLE,
           color: "#fff", border: `2px solid ${LIME}`,
           borderRadius: 4, padding: "16px",
@@ -904,7 +1015,7 @@ function LoginScreen({ onLogin, onConnectWallet, holder, laserColor, notice }) {
         <div style={{ fontFamily: READ, fontSize: 15, color: "#888", textAlign: "center", marginBottom: 12, lineHeight: 1.4 }}>
           Go ∞ infinite + a custom laser color. Optional — non-holders play the normal 30s rounds.
         </div>
-        <button onClick={onConnectWallet} style={{
+        <button onClick={onConnectWallet} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
           width: "100%", background: BLACK,
           color: CYAN, border: `2px solid ${CYAN}`,
           borderRadius: 4, padding: "14px",
@@ -942,17 +1053,18 @@ function LoginScreen({ onLogin, onConnectWallet, holder, laserColor, notice }) {
 }
 
 // ── INTRO SCREEN ──────────────────────────────────────────────
-function IntroScreen({ haterName, onStart, onPanel, activePanel }) {
+function IntroScreen({ haterName, onStart, onPanel, activePanel, holder = false }) {
   return (
     <div style={{
-      minHeight: "100vh",
+      minHeight: "100vh", height: "100vh",
       background: `radial-gradient(ellipse at 50% 50%, ${PURPLE}33 0%, ${BLACK} 70%)`,
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      padding: 24, fontFamily: READ, position: "relative", overflow: "hidden",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+      padding: "32px 24px", fontFamily: READ, position: "relative",
+      overflowX: "hidden", overflowY: "auto",
     }}>
       <SparkleField />
 
-      <div style={{ position: "relative", zIndex: 2, textAlign: "center", maxWidth: 420, width: "100%" }}>
+      <div style={{ position: "relative", zIndex: 2, textAlign: "center", maxWidth: 420, width: "100%", margin: "auto 0" }}>
         {/* Studio stamp */}
         <div style={{
           display: "inline-flex", alignItems: "center", gap: 6,
@@ -962,19 +1074,15 @@ function IntroScreen({ haterName, onStart, onPanel, activePanel }) {
         }}>
           <span style={{ fontSize: 12 }}>🔫</span>
           <span style={{ fontFamily: PIXEL, fontSize: 8, color: YELLOW, letterSpacing: 2 }}>
-            SUPERKIND TOY CO.
+            {LOCKUP} SUPERKIND TOY CO.
           </span>
         </div>
 
-        {/* Title */}
-        <div style={{
-          fontFamily: PIXEL, fontSize: 36, color: LIME,
-          letterSpacing: 4, lineHeight: 1.4,
-          textShadow: `0 0 20px ${LIME}, 0 0 40px ${LIME}66, 4px 4px 0 ${BLACK}`,
-          marginBottom: 12,
-        }}>
-          MS.<br/>PETTY
-        </div>
+        {/* Title — vintage logo (parity with landing.html) */}
+        <img src={VINTAGE_LOGO} alt={LOGO_ALT} style={{
+          display: "block", margin: "0 auto 12px",
+          width: "min(420px, 80vw)", maxWidth: "min(420px, 80vw)", height: "auto",
+        }} />
 
         {/* Tagline */}
         <div style={{
@@ -1001,7 +1109,7 @@ function IntroScreen({ haterName, onStart, onPanel, activePanel }) {
         )}
 
         {/* Big play button */}
-        <button onClick={onStart} style={{
+        <button onClick={onStart} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
           width: "100%", background: PURPLE,
           color: "#fff", border: `3px solid ${LIME}`,
           borderRadius: 4, padding: "20px",
@@ -1027,10 +1135,12 @@ function IntroScreen({ haterName, onStart, onPanel, activePanel }) {
           POP TOXIC POSITIVITY · CATCH WHAT'S REAL · DODGE WHAT'S POISON<br/>
           <span style={{ color: "#222" }}>SHE'S WATCHING THOUGH</span>
         </div>
+
+        <GameFooter />
       </div>
 
       {activePanel && (
-        <PanelOverlay panel={activePanel} onClose={() => onPanel(null)} haterName={haterName} score={0} />
+        <PanelOverlay panel={activePanel} onClose={() => onPanel(null)} haterName={haterName} score={0} holder={holder} />
       )}
 
       <GlobalStyles />
@@ -1040,7 +1150,7 @@ function IntroScreen({ haterName, onStart, onPanel, activePanel }) {
 
 function MenuButton({ children, color, onClick }) {
   return (
-    <button onClick={onClick} style={{
+    <button onClick={onClick} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
       background: BLACK, color: color,
       border: `2px solid ${color}`,
       borderRadius: 3, padding: "12px 8px",
@@ -1091,7 +1201,7 @@ function SideButton({ children, color, onClick }) {
 }
 
 // ── PANEL OVERLAY (handles all sub-panels) ────────────────────
-function PanelOverlay({ panel, onClose, haterName, score }) {
+function PanelOverlay({ panel, onClose, haterName, score, holder = false }) {
   return (
     <div style={{
       position: "fixed", inset: 0, zIndex: 100,
@@ -1113,7 +1223,7 @@ function PanelOverlay({ panel, onClose, haterName, score }) {
         {panel === 'guide'       && <ItemGuidePanel />}
         {panel === 'how'         && <HowToPlayPanel />}
         {panel === 'lore'        && <LorePanel />}
-        {panel === 'leaderboard' && <LeaderboardPanel haterName={haterName} score={score} />}
+        {panel === 'leaderboard' && <LeaderboardPanel haterName={haterName} score={score} holder={holder} />}
         {panel === 'shop'        && <ShopPanel />}
         {panel === 'social'      && <SocialPanel haterName={haterName} score={score} />}
       </div>
@@ -1277,17 +1387,32 @@ function LorePanel() {
   );
 }
 
-// ── LEADERBOARD (local for now) ───────────────────────────────
-function LeaderboardPanel({ haterName, score }) {
+// ── LEADERBOARD (live Supabase global board + local dossier) ──
+function LeaderboardPanel({ haterName, score, holder = false }) {
   const [d, setD] = useState(null);
+  const [board, setBoard] = useState(null); // null = loading, [] = empty/unavailable
   useEffect(() => { try { setD(getDossier()); } catch(e) {} }, []);
-  const dos = d || { bestScore: 0, lifetimeShots: 0, totalRuns: 0, avgScore: 0, lifetimeCatchRate: 0, longestStreak: 0, bestCatch: { name: "—", emoji: "🌟", value: 0 } };
+  useEffect(() => {
+    let live = true;
+    getLeaderboard(20)
+      .then(r => { if (live) setBoard(r && r.ok ? r.rows : []); })
+      .catch(() => { if (live) setBoard([]); });
+    return () => { live = false; };
+  }, []);
+  const dos = d || { bestScore: 0, lifetimeShots: 0, lifetimeLolz: 0, history: [], totalRuns: 0, avgScore: 0, lifetimeCatchRate: 0, longestStreak: 0, bestCatch: { name: "—", emoji: "🌟", value: 0 } };
 
   return (
     <div style={{ fontFamily: READ, color: "#fff" }}>
-      <PixelHeader color={YELLOW} size={18}>YOU vs YOU</PixelHeader>
-      <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginTop: 8, marginBottom: 28 }}>
-        "no global board yet. so the only fool to beat is past you."
+      <PixelHeader color={YELLOW} size={18}>LEADERBOARD</PixelHeader>
+      <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginTop: 8, marginBottom: 24 }}>
+        "the board is live. climb it or watch."
+      </div>
+
+      <GlobalBoard board={board} haterName={haterName} />
+
+      <PixelHeader color={YELLOW} size={13}>YOU vs YOU</PixelHeader>
+      <div style={{ fontFamily: READ, fontSize: 15, color: "#888", margin: "6px 0 14px" }}>
+        the only other fool worth beating is past you.
       </div>
 
       <div style={{ background: BLACK, border: `2px solid ${YELLOW}`, borderRadius: 6, padding: 20, marginBottom: 14 }}>
@@ -1300,12 +1425,15 @@ function LeaderboardPanel({ haterName, score }) {
 
         <Stat label="BEST SCORE" value={dos.bestScore} color={YELLOW} />
         <Stat label="LIFETIME $SHOTS" value={dos.lifetimeShots.toLocaleString()} color={LIME} />
+        <Stat label="LIFETIME $LOLZ" value={(dos.lifetimeLolz || 0).toLocaleString()} color={MAGENTA} />
         <Stat label="CURRENT RUN" value={score} color={MAGENTA} />
         <Stat label="TOTAL RUNS" value={dos.totalRuns} color={PURPLE_LT} />
         <Stat label="AVG SCORE" value={dos.avgScore} color={PURPLE_LT} />
         <Stat label="LIFETIME CATCH RATE" value={`${dos.lifetimeCatchRate}%`} color={LIME} />
         <Stat label="LONGEST WIN STREAK" value={dos.longestStreak} color={YELLOW} />
       </div>
+
+      <StatsChart history={dos.history} holder={holder} />
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, background: `${YELLOW}11`, border: `1px solid ${YELLOW}66`, borderRadius: 6, padding: "12px 14px", marginBottom: 16 }}>
         <div style={{ fontSize: 32, lineHeight: 1 }}>{dos.bestCatch.emoji}</div>
@@ -1316,9 +1444,109 @@ function LeaderboardPanel({ haterName, score }) {
         <div style={{ fontFamily: PIXEL, fontSize: 14, color: LIME }}>{dos.bestCatch.value > 0 ? `+${dos.bestCatch.value}` : "—"}</div>
       </div>
 
-      <div style={{ textAlign: "center", padding: 20, border: `1px dashed ${PURPLE}`, borderRadius: 6, fontFamily: READ, fontSize: 17, color: "#777", lineHeight: 1.4 }}>
-        Global, live board is next.<br/>
-        Your $SHOTS save on this device.
+      <div style={{ textAlign: "center", padding: 16, border: `1px dashed ${PURPLE}`, borderRadius: 6, fontFamily: READ, fontSize: 16, color: "#777", lineHeight: 1.4 }}>
+        Your dossier saves on this device.<br/>Your scores post to the global board above.
+      </div>
+    </div>
+  );
+}
+
+// Live global leaderboard list (reads from Supabase mspetty backend).
+function GlobalBoard({ board, haterName }) {
+  const me = (haterName || "").toUpperCase();
+
+  if (board === null) {
+    return (
+      <div style={{ background: BLACK, border: `2px solid ${YELLOW}`, borderRadius: 6, padding: 18, marginBottom: 20, textAlign: "center", fontFamily: READ, fontSize: 16, color: "#888" }}>
+        <div style={{ fontFamily: PIXEL, fontSize: 9, color: YELLOW, letterSpacing: 2, marginBottom: 10 }}>🏆 GLOBAL TOP 20</div>
+        loading the board…
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: BLACK, border: `2px solid ${YELLOW}`, borderRadius: 6, padding: 18, marginBottom: 20 }}>
+      <div style={{ fontFamily: PIXEL, fontSize: 9, color: YELLOW, letterSpacing: 2, marginBottom: 14 }}>🏆 GLOBAL TOP 20</div>
+      {board.length === 0 ? (
+        <div style={{ textAlign: "center", fontFamily: READ, fontSize: 16, color: "#888", lineHeight: 1.4 }}>
+          No scores posted yet.<br/>Finish a run — be the first name on the board.
+        </div>
+      ) : (
+        board.map((row, i) => {
+          const name = (row.hater_name || "—").toUpperCase();
+          const isMe = me && name === me;
+          const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
+          return (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: 10,
+              padding: "9px 8px", borderBottom: `1px solid ${PURPLE}33`,
+              background: isMe ? `${LIME}11` : "transparent", borderRadius: isMe ? 4 : 0,
+            }}>
+              <div style={{ fontFamily: PIXEL, fontSize: 11, color: i < 3 ? YELLOW : "#666", width: 30, textAlign: "center" }}>{medal}</div>
+              <div style={{ flex: 1, fontFamily: PIXEL, fontSize: 10, color: isMe ? LIME : "#fff", letterSpacing: 1 }}>
+                {name}{isMe ? " ·you" : ""}
+              </div>
+              <div style={{ fontFamily: PIXEL, fontSize: 12, color: LIME }}>{row.score}</div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// ── INLINE SVG STATS CHART (no libraries) ─────────────────────
+// Two lines across recent rounds: $SHOTS (lime) + $LOLZ (magenta).
+// Holders see the fuller dataset; non-holders see the most recent slice.
+function StatsChart({ history = [], holder = false }) {
+  const W = 460, H = 150, PADX = 10, PADY = 16;
+  // TODO(confirm): "fuller dataset" = all 50 for holders vs last 12 for non-holders.
+  const slice = holder ? history.slice(-50) : history.slice(-12);
+
+  if (!slice || slice.length < 2) {
+    return (
+      <div style={{
+        border: `1px solid ${PURPLE}`, borderRadius: 6, padding: 16, marginBottom: 16,
+        fontFamily: READ, fontSize: 15, color: "#777", textAlign: "center", lineHeight: 1.4,
+      }}>
+        <div style={{ fontFamily: PIXEL, fontSize: 8, color: PURPLE_LT, letterSpacing: 1, marginBottom: 8 }}>
+          $SHOTS vs $LOLZ
+        </div>
+        Play a couple rounds — your trend line draws itself here.
+      </div>
+    );
+  }
+
+  const maxV = Math.max(1, ...slice.map(p => Math.max(p.shots || 0, p.lolz || 0)));
+  const n = slice.length;
+  const xAt = (i) => PADX + (i * (W - 2 * PADX)) / (n - 1);
+  const yAt = (v) => H - PADY - ((v || 0) / maxV) * (H - 2 * PADY);
+  const path = (key) => slice.map((p, i) => `${i === 0 ? "M" : "L"} ${xAt(i).toFixed(1)} ${yAt(p[key]).toFixed(1)}`).join(" ");
+
+  return (
+    <div style={{ border: `1px solid ${PURPLE}`, borderRadius: 6, padding: 14, marginBottom: 16, background: BLACK }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontFamily: PIXEL, fontSize: 8, color: PURPLE_LT, letterSpacing: 1 }}>
+          $SHOTS vs $LOLZ · LAST {n} {holder ? "· ∞ HOLDER" : "ROUNDS"}
+        </span>
+        <span style={{ fontFamily: READ, fontSize: 14 }}>
+          <span style={{ color: LIME }}>● $SHOTS</span>&nbsp;&nbsp;
+          <span style={{ color: MAGENTA }}>● $LOLZ</span>
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="auto" preserveAspectRatio="none" style={{ display: "block" }}>
+        <line x1={PADX} y1={H - PADY} x2={W - PADX} y2={H - PADY} stroke={`${PURPLE}66`} strokeWidth="1" />
+        <path d={path("lolz")} fill="none" stroke={MAGENTA} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <path d={path("shots")} fill="none" stroke={LIME} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        {slice.map((p, i) => (
+          <circle key={`s${i}`} cx={xAt(i)} cy={yAt(p.shots)} r="2.5" fill={LIME} />
+        ))}
+        {slice.map((p, i) => (
+          <circle key={`l${i}`} cx={xAt(i)} cy={yAt(p.lolz)} r="2.5" fill={MAGENTA} />
+        ))}
+      </svg>
+      <div style={{ fontFamily: READ, fontSize: 13, color: "#666", textAlign: "center", marginTop: 4 }}>
+        round index → (default-speed rounds)
       </div>
     </div>
   );
@@ -1338,83 +1566,61 @@ function Stat({ label, value, color }) {
 
 // ── SHOP ──────────────────────────────────────────────────────
 function ShopPanel() {
-  const COLLECTION = "https://www.transient.xyz/nfts/base/0x3bd644bb69e70a9b57e4213b977257aea9ca45bf";
-  const lasers = [
-    {
-      emoji: "🔫", token: "TOKEN #1", accent: "#FF3B3B",
-      name: "BIG PHAT RED",
-      desc: "Neon red laser. The original sin. Live on auction.",
-      url: `${COLLECTION}/1`, btnBg: "#FF3B3B", btnColor: "#000",
-    },
-    {
-      emoji: "🔫", token: "TOKEN #2", accent: "#7B2FBE",
-      name: "SUPER BLAUM",
-      desc: "Purple beam. Refined menace. Live on auction.",
-      url: `${COLLECTION}/2`, btnBg: "#7B2FBE", btnColor: "#fff",
-    },
-  ];
+  const COLLECTION = `https://www.transient.xyz/nfts/base/${TRANSIENT_CONTRACT}`;
   return (
     <div style={{ fontFamily: READ, color: "#fff" }}>
       <PixelHeader color={PINK} size={18}>PEW PEW ARSENAL</PixelHeader>
       <div style={{ fontFamily: MARKER, fontSize: 16, color: PURPLE_LT, marginTop: 8, marginBottom: 8 }}>
-        "own a laser. play forever. unlock chaos."
+        "own a pew pew. play forever."
       </div>
-      <div style={{ fontFamily: READ, fontSize: 14, color: "#999", marginBottom: 28, lineHeight: 1.4 }}>
-        Every weapon is an ERC-721 on Base. Hold one → infinite gameplay + custom laser color. Founder's piece not for sale.
+      <div style={{ fontFamily: READ, fontSize: 14, color: "#999", marginBottom: 24, lineHeight: 1.4 }}>
+        Every pew pew is an ERC-721 on Base. Collect one → it enables Infinite Play + your own custom laser color.
       </div>
 
-      {lasers.map((it, i) => (
-        <div key={i} style={{
+      {ONCHAIN_PEWS.map((pew) => (
+        <div key={pew.id} style={{
           background: BLACK, border: `2px solid ${PINK}`,
-          borderRadius: 6, padding: 16, marginBottom: 12,
+          borderRadius: 6, padding: 14, marginBottom: 14,
           display: "flex", alignItems: "center", gap: 14,
         }}>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 38 }}>{it.emoji}</div>
-            <div style={{ fontFamily: PIXEL, fontSize: 8, color: it.accent, marginTop: 4 }}>{it.token}</div>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: PIXEL, fontSize: 10, color: it.accent, letterSpacing: 1, marginBottom: 4 }}>
-              {it.name}
+          <img
+            src={pew.art}
+            alt={`${pew.name} pew pew`}
+            loading="lazy"
+            style={{
+              width: 84, height: 84, objectFit: "cover", flexShrink: 0,
+              borderRadius: 5, border: `1px solid ${PURPLE}`, background: DARK,
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+              <span style={{
+                fontFamily: PIXEL, fontSize: 7, color: BLACK, background: LIME,
+                letterSpacing: 1, padding: "3px 6px", borderRadius: 3,
+              }}>
+                NOW ONCHAIN
+              </span>
+              <span style={{ fontFamily: PIXEL, fontSize: 7, color: PURPLE_LT, letterSpacing: 1 }}>
+                TOKEN #{pew.id}
+              </span>
             </div>
-            <div style={{ fontFamily: READ, fontSize: 16, color: "#ccc" }}>{it.desc}</div>
+            <div style={{ fontFamily: PIXEL, fontSize: 10, color: PINK, letterSpacing: 1, marginBottom: 6, lineHeight: 1.4 }}>
+              {pew.name}
+            </div>
+            <div style={{ fontFamily: READ, fontSize: 15, color: LIME, marginBottom: 10 }}>
+              ⚡ Enables Infinite Play
+            </div>
+            <a href={transientToken(pew.id)} target="_blank" rel="noopener noreferrer" style={{
+              display: "inline-block", background: PINK, color: BLACK,
+              border: `2px solid ${LIME}`, borderRadius: 3,
+              padding: "8px 12px", fontFamily: PIXEL, fontSize: 8, letterSpacing: 1,
+              textDecoration: "none",
+            }}>
+              COLLECT ON TRANSIENT LABS →
+            </a>
           </div>
-          <a href={it.url} target="_blank" rel="noopener noreferrer" style={{
-            background: it.btnBg, color: it.btnColor,
-            border: `2px solid ${LIME}`, borderRadius: 3,
-            padding: "8px 12px", fontFamily: PIXEL, fontSize: 9,
-            textDecoration: "none", whiteSpace: "nowrap",
-          }}>
-            BID ON BASE →
-          </a>
         </div>
       ))}
-
-      <div style={{
-        background: BLACK, border: `2px solid ${LIME}`,
-        borderRadius: 6, padding: 16, marginBottom: 12, opacity: 0.85,
-        display: "flex", alignItems: "center", gap: 14,
-      }}>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontSize: 38 }}>🔫</div>
-          <div style={{ fontFamily: PIXEL, fontSize: 8, color: LIME, marginTop: 4 }}>TOKEN #3</div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: PIXEL, fontSize: 10, color: LIME, letterSpacing: 1, marginBottom: 4 }}>
-            FOUNDER'S CACHE
-          </div>
-          <div style={{ fontFamily: READ, fontSize: 16, color: "#ccc" }}>
-            Held by the founder of SuperKind Toy Co. Trophy, not stock.
-          </div>
-        </div>
-        <div style={{
-          fontFamily: PIXEL, fontSize: 9, color: LIME,
-          border: `1px dashed ${LIME}`, borderRadius: 3, padding: "8px 12px",
-          whiteSpace: "nowrap",
-        }}>
-          NOT FOR SALE
-        </div>
-      </div>
 
       <a href={COLLECTION} target="_blank" rel="noopener noreferrer" style={{
         display: "block", textAlign: "center", padding: 16, marginTop: 16,
@@ -1422,7 +1628,7 @@ function ShopPanel() {
         border: `1px dashed ${PINK}`, borderRadius: 6,
         textDecoration: "none",
       }}>
-        more weapons dropping → see the full arsenal on transient
+        see the full arsenal on transient labs →
       </a>
     </div>
   );
@@ -1431,7 +1637,8 @@ function ShopPanel() {
 // ── SOCIAL ────────────────────────────────────────────────────
 function SocialPanel({ haterName, score }) {
   const shareText = encodeURIComponent(`Just popped ${score} $SHOTS in MS. PETTY 🔫 a HATER game. https://mspetty.blaqqat.games`);
-  const farcasterURL = `https://warpcast.com/~/compose?text=${shareText}`;
+  // Random Farcaster cast line, freshly picked each time the panel opens.
+  const farcasterURL = randomCastURL();
   const xURL = `https://twitter.com/intent/tweet?text=${shareText}`;
 
   return (
@@ -1446,7 +1653,7 @@ function SocialPanel({ haterName, score }) {
         Let the world know about your hating achievements!
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 32 }}>
-        <SocialButton color={PURPLE} icon="●" label="FARCASTER" sub="Share with the community" href={farcasterURL} />
+        <SocialButton color={PURPLE} icon="●" label="FARCASTER" sub="Cast it to @maxximillian" href={farcasterURL} />
         <SocialButton color={"#fff"} icon="𝕏" label="X" sub="Tweet your score" href={xURL} />
       </div>
 
@@ -1455,8 +1662,9 @@ function SocialPanel({ haterName, score }) {
         Become a content creator. Share live.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 32 }}>
-        <SocialButton color={PURPLE_LT} icon="📺" label="TWITCH" sub="Stream live" href="https://twitch.tv" />
-        <SocialButton color={CYAN} icon="📱" label="TIKTOK" sub="Viral content" href="https://tiktok.com" />
+        <SocialButton color={PURPLE_LT} icon="💻" label="TWITCH" sub="Stream live" href="https://twitch.tv" />
+        {/* TODO(confirm): Livestreams destination — pointing at the Farcaster profile where lives are announced. */}
+        <SocialButton color={CYAN} icon="🎥" label="LIVESTREAMS" sub="Join us live!" href={FARCASTER_PROFILE} />
       </div>
 
       <PixelHeader color={MAGENTA} size={11}>HATE ON THE DEVELOPER</PixelHeader>
@@ -1464,7 +1672,7 @@ function SocialPanel({ haterName, score }) {
         Connect with the creator. Join the Gato Society.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <SocialButton color={PURPLE} icon="●" label="FARCASTER" sub="@blaqqat" href="https://warpcast.com/blaqqat" />
+        <SocialButton color={PURPLE} icon="●" label="FARCASTER" sub="@maxximillian" href={FARCASTER_PROFILE} />
         <SocialButton color={CYAN} icon="✈" label="TELEGRAM" sub="Gato Society" href="https://t.me/gatosociety" />
       </div>
     </div>
@@ -1487,6 +1695,240 @@ function SocialButton({ color, icon, label, sub, href }) {
   );
 }
 
+// ── FOOTER (parity with landing.html) + MODALS ────────────────
+function GameFooter() {
+  const [modal, setModal] = useState(null); // 'share' | 'grant' | null
+  return (
+    <>
+      <div style={{
+        marginTop: 28, paddingTop: 20, borderTop: `1px solid ${PURPLE}44`,
+        textAlign: "center", lineHeight: 1.7,
+      }}>
+        <div style={{ fontFamily: PIXEL, fontSize: 8, letterSpacing: 1, marginBottom: 10 }}>
+          <span style={{ fontSize: 12 }}>{LOCKUP}</span>{" "}
+          <a href={LINK_SUPERKIND} target="_blank" rel="noopener noreferrer" style={{ color: YELLOW, textDecoration: "none" }}>
+            SUPERKIND TOY CO.
+          </a>
+        </div>
+
+        <div style={{ fontFamily: MARKER, fontSize: 15, color: PURPLE_LT, marginBottom: 14 }}>
+          "SHE'S NOT MAD. JUST DISAPPOINTED."
+        </div>
+
+        <div style={{ fontFamily: READ, fontSize: 14, color: "#888", marginBottom: 14, lineHeight: 1.6 }}>
+          <FooterLink href={LINK_BLAQQAT}>A BLAQQAT BUIDL</FooterLink>
+          <span style={{ color: "#444" }}> · </span>
+          MUSIC BY <FooterLink href={LINK_ENDODECA}>ENDODECA</FooterLink>
+          <span style={{ color: "#444" }}> · </span>
+          <FooterLink href={LINK_SRR}>SUPREME RACKET RECORDS</FooterLink>
+        </div>
+
+        {/* CashApp tip jar */}
+        <div style={{
+          display: "inline-flex", flexDirection: "column", alignItems: "center", gap: 8,
+          border: `1px solid ${LIME}44`, borderRadius: 6, padding: "12px 16px", marginBottom: 16,
+        }}>
+          <div style={{ fontFamily: PIXEL, fontSize: 8, color: LIME, letterSpacing: 1 }}>BUY THE DEV A SHOT 🔫</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <a href={LINK_CASH_ENDODECA} target="_blank" rel="noopener noreferrer" style={{
+              fontFamily: READ, fontSize: 16, color: LIME, textDecoration: "none",
+              border: `1px solid ${LIME}66`, borderRadius: 4, padding: "4px 12px",
+            }}>$Endodeca</a>
+            <a href={LINK_CASH_BLAQQAT} target="_blank" rel="noopener noreferrer" style={{
+              fontFamily: READ, fontSize: 16, color: LIME, textDecoration: "none",
+              border: `1px solid ${LIME}66`, borderRadius: 4, padding: "4px 12px",
+            }}>$BlaqqatBuilds</a>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+          <a href={LINK_ABOUT} target="_blank" rel="noopener noreferrer" style={footerBtnStyle(PURPLE_LT)}>ABOUT / LORE</a>
+          <button onClick={() => setModal('share')} style={footerBtnStyle(MAGENTA)}>SHARE YOUR RUN</button>
+          {/* TODO(confirm): placement — grant application entry lives in the footer. */}
+          <button onClick={() => setModal('grant')} style={footerBtnStyle(LIME)}>GRANT APPLICATION</button>
+        </div>
+      </div>
+
+      {modal === 'share' && <ShareRunModal onClose={() => setModal(null)} />}
+      {modal === 'grant' && <GrantApplicationModal onClose={() => setModal(null)} />}
+    </>
+  );
+}
+
+function footerBtnStyle(color) {
+  return {
+    background: BLACK, color, border: `2px solid ${color}`,
+    borderRadius: 3, padding: "10px 12px", fontFamily: PIXEL, fontSize: 8,
+    letterSpacing: 1, cursor: "pointer", textDecoration: "none", display: "inline-block",
+  };
+}
+
+function FooterLink({ href, children }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: PURPLE_LT, textDecoration: "none" }}>
+      {children}
+    </a>
+  );
+}
+
+// Center-screen modal shell.
+function CenterModal({ title, accent = MAGENTA, onClose, children }) {
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 200,
+      background: "rgba(0,0,0,0.9)", display: "flex",
+      alignItems: "center", justifyContent: "center", padding: 16,
+      animation: "fadeIn 0.25s ease", overflowY: "auto",
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: DARK, border: `2px solid ${accent}`, borderRadius: 8,
+        padding: 22, maxWidth: 420, width: "100%", boxShadow: `5px 5px 0 ${BLACK}`,
+        maxHeight: "90vh", overflowY: "auto",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontFamily: PIXEL, fontSize: 12, color: accent, letterSpacing: 2 }}>{title}</div>
+          <button onClick={onClose} style={{
+            background: "transparent", color: "#888", border: `1px solid #444`,
+            borderRadius: 3, padding: "4px 9px", fontFamily: PIXEL, fontSize: 9, cursor: "pointer",
+          }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ShareRunModal({ onClose }) {
+  const [url, setUrl] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    try { await submitGameplayShare(url.trim()); } catch (e) {}
+    setDone(true); // success regardless
+  };
+
+  return (
+    <CenterModal title="SHARE YOUR RUN" accent={MAGENTA} onClose={onClose}>
+      {!done ? (
+        <div style={{ fontFamily: READ, color: "#ddd" }}>
+          <div style={{ fontSize: 17, lineHeight: 1.4, marginBottom: 14 }}>
+            Drop the link to your gameplay post (x.com / twitch / instagram / tiktok / youtube).
+          </div>
+          <div style={{ fontSize: 15, color: PURPLE_LT, lineHeight: 1.4, marginBottom: 14 }}>
+            Tag <b style={{ color: LIME }}>@imaxximillian</b> (IG) or <b style={{ color: LIME }}>@maxximillian</b> (YouTube/X),
+            and use <b style={{ color: MAGENTA }}>#mspetty_gameplay</b> <b style={{ color: MAGENTA }}>#superkindtoyco</b> for extra points.
+          </div>
+          <input
+            type="url" value={url} onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://..."
+            style={{
+              width: "100%", boxSizing: "border-box", background: BLACK, color: "#fff",
+              border: `2px solid ${MAGENTA}`, borderRadius: 4, padding: "12px",
+              fontFamily: READ, fontSize: 17, marginBottom: 16,
+            }}
+          />
+          <button onClick={submit} style={{
+            width: "100%", background: MAGENTA, color: "#fff", border: `2px solid ${LIME}`,
+            borderRadius: 4, padding: "14px", fontFamily: PIXEL, fontSize: 11, letterSpacing: 2, cursor: "pointer",
+          }}>
+            🔫 SUBMIT MY RUN
+          </button>
+        </div>
+      ) : (
+        <div style={{ fontFamily: READ, color: "#ddd", textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 10 }}>🎈✨🔫</div>
+          <div style={{ fontFamily: PIXEL, fontSize: 12, color: LIME, letterSpacing: 1, marginBottom: 10, lineHeight: 1.5 }}>
+            RUN SUBMITTED
+          </div>
+          <div style={{ fontSize: 17, color: "#bbb", lineHeight: 1.4 }}>
+            She saw it. The smile is shaking. Keep them watching.
+          </div>
+        </div>
+      )}
+    </CenterModal>
+  );
+}
+
+function GrantApplicationModal({ onClose }) {
+  const [wallet, setWallet] = useState("");
+  const [email, setEmail] = useState("");
+  const [post, setPost] = useState("");
+  const [done, setDone] = useState(false);
+
+  const submit = async () => {
+    try { await submitGrantApplication(wallet.trim(), email.trim(), post.trim()); } catch (e) {}
+    setDone(true); // success state regardless
+  };
+
+  const field = {
+    width: "100%", boxSizing: "border-box", background: BLACK, color: "#fff",
+    border: `2px solid ${LIME}`, borderRadius: 4, padding: "11px",
+    fontFamily: READ, fontSize: 17, marginBottom: 12,
+  };
+  const lbl = { fontFamily: PIXEL, fontSize: 8, color: LIME, letterSpacing: 1, marginBottom: 6, display: "block" };
+
+  const subs = [
+    { label: "Farcaster", href: FARCASTER_PROFILE },
+    { label: "ENDODECA", href: LINK_ENDODECA },
+    { label: "Supreme Racket", href: LINK_SRR },
+    { label: "SuperKind", href: LINK_SUPERKIND },
+    { label: "Blaqqat", href: LINK_BLAQQAT },
+  ];
+
+  return (
+    <CenterModal title="GRANT APPLICATION" accent={LIME} onClose={onClose}>
+      {!done ? (
+        <div style={{ fontFamily: READ, color: "#ddd" }}>
+          <div style={{ fontSize: 17, lineHeight: 1.4, marginBottom: 16, color: PURPLE_LT }}>
+            We grant access — you apply. Approved players unlock up to <b style={{ color: LIME }}>4-minute</b> default
+            speed-rounds.
+          </div>
+
+          <label style={lbl}>BASE WALLET (your login)</label>
+          <input value={wallet} onChange={(e) => setWallet(e.target.value)} placeholder="0x..." style={field} />
+
+          <label style={lbl}>EMAIL</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" style={field} />
+
+          <label style={lbl}>GAMEPLAY POST URL</label>
+          <input type="url" value={post} onChange={(e) => setPost(e.target.value)} placeholder="https://..." style={field} />
+          <div style={{ fontSize: 14, color: "#888", lineHeight: 1.4, marginBottom: 16 }}>
+            IG/X/YouTube post tagging <b style={{ color: LIME }}>@imaxximillian</b> with{" "}
+            <b style={{ color: MAGENTA }}>#mspetty_gameplay</b> <b style={{ color: MAGENTA }}>#superkindtoyco</b>.
+          </div>
+
+          <button onClick={submit} style={{
+            width: "100%", background: LIME, color: BLACK, border: `2px solid ${MAGENTA}`,
+            borderRadius: 4, padding: "14px", fontFamily: PIXEL, fontSize: 11, letterSpacing: 2, cursor: "pointer",
+          }}>
+            APPLY FOR ACCESS →
+          </button>
+        </div>
+      ) : (
+        <div style={{ fontFamily: READ, color: "#ddd" }}>
+          <div style={{ textAlign: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>🎈✨🔫</div>
+            <div style={{ fontFamily: PIXEL, fontSize: 11, color: LIME, letterSpacing: 1, lineHeight: 1.6 }}>
+              YOUR GRANT APPLICATION<br/>IS UNDER REVIEW.
+            </div>
+          </div>
+          <div style={{ fontFamily: PIXEL, fontSize: 8, color: PURPLE_LT, letterSpacing: 1, marginBottom: 10, textAlign: "center" }}>
+            WHILE YOU WAIT — SUBSCRIBE
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+            {subs.map((s) => (
+              <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer" style={{
+                fontFamily: READ, fontSize: 16, color: LIME, textDecoration: "none",
+                border: `1px solid ${LIME}66`, borderRadius: 4, padding: "6px 12px",
+              }}>{s.label}</a>
+            ))}
+          </div>
+        </div>
+      )}
+    </CenterModal>
+  );
+}
+
 // ── GAME OVER ─────────────────────────────────────────────────
 const OUTRO_LINES = [
   "she's not mad. just disappointed.",
@@ -1497,12 +1939,13 @@ const OUTRO_LINES = [
   "you played. the smile played back.",
 ];
 
-function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestart, onMenu, onPanel, activePanel }) {
+function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestart, onMenu, onPanel, activePanel, holder = false }) {
   const outro = OUTRO_LINES[Math.floor(Math.random() * OUTRO_LINES.length)];
   const run = (summary && summary.lastRun) || {
-    scoreDelta: 0, isNewBest: false, catches: 0, penalties: 0,
+    scoreDelta: 0, isNewBest: false, catches: 0, penalties: 0, lolz: 0,
     catchRate: 0, streak: 0, prevBest: 0, bestCatch: { value: 0 },
   };
+  const lolz = run.lolz || 0;
   const verdict = (summary && summary.verdict) || { headline: "THAT WAS A RUN.", sub: "" };
   const rank = (summary && summary.rank) || getRank(score);
   const pew = run.bestCatch && run.bestCatch.value > 0 ? run.bestCatch : null;
@@ -1513,24 +1956,22 @@ function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestar
 
   return (
     <div style={{
-      minHeight: "100vh",
+      minHeight: "100vh", height: "100vh",
       background: `radial-gradient(ellipse at 50% 50%, ${PURPLE}33 0%, ${BLACK} 70%)`,
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      padding: 20, fontFamily: READ, color: "#fff",
-      position: "relative", overflow: "hidden",
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+      padding: "28px 20px", fontFamily: READ, color: "#fff",
+      position: "relative", overflowX: "hidden", overflowY: "auto",
     }}>
       <SparkleField />
-      <div style={{ position: "relative", zIndex: 2, maxWidth: 400, width: "100%", textAlign: "center" }}>
+      <div style={{ position: "relative", zIndex: 2, maxWidth: 400, width: "100%", textAlign: "center", margin: "auto 0" }}>
         <div style={{ fontFamily: PIXEL, fontSize: 11, color: MAGENTA, letterSpacing: 4, marginBottom: 14 }}>
           THAT'S ENOUGH FOR NOW
         </div>
 
-        <div style={{
-          fontFamily: PIXEL, fontSize: 28, color: LIME, letterSpacing: 4,
-          lineHeight: 1.4, marginBottom: 8, textShadow: `0 0 20px ${LIME}, 4px 4px 0 ${BLACK}`,
-        }}>
-          MS. PETTY
-        </div>
+        <img src={VINTAGE_LOGO} alt={LOGO_ALT} style={{
+          display: "block", margin: "0 auto 8px",
+          width: "min(420px, 80vw)", maxWidth: "min(420px, 80vw)", height: "auto",
+        }} />
 
         <div style={{ fontFamily: MARKER, fontSize: 15, color: PURPLE_LT, marginBottom: 18 }}>
           "{outro}"
@@ -1564,8 +2005,13 @@ function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestar
             <div style={{ fontFamily: PIXEL, fontSize: 8, color: "#666", letterSpacing: 1 }}>$SHOTS THIS RUN</div>
             <div style={{ fontFamily: PIXEL, fontSize: 24, color: LIME, textShadow: `0 0 12px ${LIME}88` }}>{score}</div>
           </div>
-          <div style={{ textAlign: "right", fontFamily: PIXEL, fontSize: 9, color: deltaColor, marginTop: 4, marginBottom: 14 }}>
+          <div style={{ textAlign: "right", fontFamily: PIXEL, fontSize: 9, color: deltaColor, marginTop: 4, marginBottom: 10 }}>
             {up ? `+${delta}` : delta} vs your best ({run.prevBest})
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14, paddingTop: 10, borderTop: `1px solid ${MAGENTA}33` }}>
+            <div style={{ fontFamily: PIXEL, fontSize: 8, color: "#666", letterSpacing: 1 }}>$LOLZ <span style={{ color: "#555" }}>(let 'em get away)</span></div>
+            <div style={{ fontFamily: PIXEL, fontSize: 20, color: MAGENTA, textShadow: `0 0 12px ${MAGENTA}88` }}>{lolz}</div>
           </div>
 
           {pew && (
@@ -1591,7 +2037,7 @@ function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestar
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 14, opacity: 0.85 }}>
           <span style={{ fontSize: 26 }}>🔫</span>
-          <span style={{ fontFamily: PIXEL, fontSize: 8, color: "#666", letterSpacing: 2 }}>YOUR PEW · SUPERKIND TOY CO.</span>
+          <span style={{ fontFamily: PIXEL, fontSize: 8, color: "#666", letterSpacing: 2 }}>YOUR PEW · {LOCKUP} SUPERKIND TOY CO.</span>
         </div>
 
         <button onClick={onRestart} style={{
@@ -1614,10 +2060,12 @@ function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestar
         }}>
           ← MAIN MENU
         </button>
+
+        <GameFooter />
       </div>
 
       {activePanel && (
-        <PanelOverlay panel={activePanel} onClose={() => onPanel(null)} haterName={haterName} score={score} />
+        <PanelOverlay panel={activePanel} onClose={() => onPanel(null)} haterName={haterName} score={score} holder={holder} />
       )}
 
       <GlobalStyles />

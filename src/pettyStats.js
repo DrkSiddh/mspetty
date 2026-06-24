@@ -7,6 +7,7 @@
 // ============================================================
 
 const KEY = "mspetty_dossier_v1";
+const HISTORY_CAP = 50; // keep the last ~50 runs for the stats graph
 
 function read() {
   try { return JSON.parse(localStorage.getItem(KEY)) || {}; }
@@ -31,6 +32,8 @@ function getDossierFrom(d) {
   return {
     bestScore: d.bestScore || 0,
     lifetimeShots: d.lifetimeShots || 0,
+    lifetimeLolz: d.lifetimeLolz || 0,
+    history: Array.isArray(d.history) ? d.history : [],
     totalRuns: d.totalRuns || 0,
     totalEarned: d.totalEarned || 0,
     totalDisrupted,
@@ -96,7 +99,7 @@ export function pettyVerdict(run, dossier) {
 
 export function recordRun({
   score = 0, earned = 0, disrupted = 0, level = null,
-  catches = 0, penalties = 0,
+  catches = 0, penalties = 0, lolz = 0,
   bestCatch = { name: "", emoji: "", value: 0 },
   worstPenalty = { name: "", emoji: "", value: 0 },
 } = {}) {
@@ -104,6 +107,10 @@ export function recordRun({
   const prevBest = d.bestScore || 0;
   const prevBestCatchValue = d.bestCatchValue || 0;
   const prevScore = d.lastScore || 0;
+
+  // Capped per-run history for the stats graph (last ~50 rounds).
+  const prevHistory = Array.isArray(d.history) ? d.history : [];
+  const history = [...prevHistory, { ts: Date.now(), shots: score, lolz }].slice(-HISTORY_CAP);
 
   const streak = score > prevScore ? (d.currentStreak || 0) + 1 : 0;
   const totalRuns = (d.totalRuns || 0) + 1;
@@ -115,6 +122,8 @@ export function recordRun({
     ...d,
     bestScore: Math.max(prevBest, score),
     lifetimeShots: (d.lifetimeShots || 0) + earned,
+    lifetimeLolz: (d.lifetimeLolz || 0) + lolz,
+    history,
     totalRuns,
     totalEarned: (d.totalEarned || 0) + earned,
     totalDisrupted: (d.totalDisrupted || 0) + disrupted,
@@ -134,7 +143,7 @@ export function recordRun({
 
   const catchRate = disrupted > 0 ? Math.round((catches / disrupted) * 100) : 0;
   const lastRun = {
-    score, earned, disrupted, catches, penalties, level,
+    score, earned, disrupted, catches, penalties, level, lolz,
     bestCatch, worstPenalty,
     prevBest, scoreDelta: score - prevBest,
     isNewBest, isNewBestCatch,
