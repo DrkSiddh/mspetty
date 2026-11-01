@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { recordRun, getDossier, getRank } from "./pettyStats";
-import { connectWallet, isHolder, getLaserColor, getHeldToken } from "./superkindGate";
+import { isHolder, getHeldToken, discoverWallets, connectWith, isMobile, walletDeepLinks, isValidAddress } from "./superkindGate";
 import { submitGameplayShare, submitGrantApplication, submitRun, getLeaderboard } from "./supabaseClient";
 
 // ============================================================
@@ -93,6 +93,34 @@ function playPew(tokenId) {
 function playBalloonBurst() { playSound("/sounds/balloon-burst.mp3"); }
 // Menu / login button hover.
 function playButtonHover() { playSound("/sounds/button-hover.mp3"); }
+
+// ── SUPERKIND ACCESS CHECK (Base pew pews) ────────────────────
+// Same field names as superkindGate.getAccess() so the vehicle/ENS phase is a
+// swap, not a rewrite. balanceOf is the gate (works even if token ids skip);
+// the ownerOf scan only picks the laser color + pew SFX.
+const WALLET_KEY = "mspetty_wallet";
+const shortAddr = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
+const laserSwatch = (access) => (access && access.laserColor) || LIME;
+// Press Start 2P has no ∞ glyph — the fallback renders it tiny next to pixel text.
+const Inf = ({ color }) => (
+  <span style={{ fontFamily: "Arial, Helvetica, sans-serif", fontWeight: 900, fontSize: "1.5em", lineHeight: 1, verticalAlign: "-0.1em", color }}>∞</span>
+);
+async function checkBaseAccess(address) {
+  const [bal, held] = await Promise.all([
+    isHolder(address).catch(() => null),
+    getHeldToken(address).catch(() => null),
+  ]);
+  const baseTokenId = held ? held.id : null;
+  const baseHolder = bal === true || baseTokenId !== null;
+  return {
+    address,
+    baseHolder,
+    baseTokenId,
+    laserColor: (held && held.color) || LIME,
+    infinite: baseHolder,
+    unreachable: bal === null && held === null, // Base RPC down — never block play
+  };
+}
 
 // ── LEVEL SYSTEM (range-based, all 11) ────────────────────────
 const LEVELS = [
@@ -427,12 +455,15 @@ export default function MsPetty() {
   const [activePanel, setActivePanel] = useState(null); // 'leaderboard', 'shop', 'social', 'guide', 'how', 'lore'
   const [runSummary, setRunSummary] = useState(null);
 
-  // ── SUPERKIND NFT GATE (Phase 1) ──────────────────────────────
-  const [walletAddress, setWalletAddress] = useState(null);
-  const [holder, setHolder] = useState(false);
-  const [heldTokenId, setHeldTokenId] = useState(null); // highest token id owned (drives laser color + pew sound)
-  const [laserColor, setLaserColor] = useState(LIME); // default = existing pew/laser color
-  const [walletNotice, setWalletNotice] = useState(null);
+  // ── SUPERKIND ACCESS (Base pew pews) ──────────────────────────
+  // One access object; holder / laser color / pew SFX all derive from it.
+  const [access, setAccess] = useState(null);
+  const [walletRestoring, setWalletRestoring] = useState(false);
+  const holder = !!(access && access.infinite);           // ∞ play — run ends only at EGO DEATH or BANK IT
+  const heldTokenId = access ? access.baseTokenId : null; // highest token id owned (drives laser color + pew sound)
+  const laserColor = (access && access.laserColor) || LIME; // default = existing pew/laser color
+  const [endReason, setEndReason] = useState(null); // "timeup" | "egodeath" | "banked"
+  const runEndedRef = useRef(false); // one end per run — timer + EGO DEATH can land on the same tick
 
   const prevLevelRef = useRef(null);
   const runStatsRef = useRef({ catches: 0, penalties: 0, lolz: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } });
@@ -448,7 +479,51 @@ export default function MsPetty() {
     }
   }, []);
 
+  // Returning wallet: re-check silently (eth_accounts = no popup) so holders
+  // land straight back in ∞ play without tapping the login button again.
+  useEffect(() => {
+    let saved = null;
+    try { saved = localStorage.getItem(WALLET_KEY); } catch (_) {}
+    if (!isValidAddress(saved)) return;
+    let live = true;
+    setWalletRestoring(true);
+    (async () => {
+      try {
+        const wallets = await discoverWallets();
+        for (const w of wallets) {
+          let accts = [];
+          try { accts = await w.provider.request({ method: "eth_accounts" }); } catch (_) {}
+          if (Array.isArray(accts) && accts.some(a => a.toLowerCase() === saved.toLowerCase())) {
+            const a = await checkBaseAccess(saved);
+            if (live) setAccess(a);
+            break;
+          }
+        }
+      } finally {
+        if (live) setWalletRestoring(false);
+      }
+    })();
+    return () => { live = false; };
+  }, []);
+
   const currentLevel = getLevel(score);
+
+  // Every run ends here — timer, EGO DEATH, or a holder banking an ∞ run.
+  const endRun = (reason) => {
+    if (runEndedRef.current) return;
+    runEndedRef.current = true;
+    const rs = runStatsRef.current;
+    const summary = recordRun({
+      score, earned, disrupted: totalDisrupted,
+      level: getLevel(score).name,
+      catches: rs.catches, penalties: rs.penalties, lolz: rs.lolz,
+      bestCatch: rs.bestCatch, worstPenalty: rs.worstPenalty,
+    });
+    setRunSummary(summary);
+    setEndReason(reason);
+    setMenuOpen(false);
+    setScreen("gameover");
+  };
 
   // Level transition flash
   useEffect(() => {
@@ -464,17 +539,9 @@ export default function MsPetty() {
   // Timer
   useEffect(() => {
     if (screen !== "game" || paused) return;
-    if (holder) return; // SuperKind holders: infinite time — no countdown, no game-over
+    if (holder) return; // SuperKind holders: infinite time — no countdown; run ends at EGO DEATH or BANK IT
     if (timeLeft <= 0) {
-      const rs = runStatsRef.current;
-      const summary = recordRun({
-        score, earned, disrupted: totalDisrupted,
-        level: getLevel(score).name,
-        catches: rs.catches, penalties: rs.penalties, lolz: rs.lolz,
-        bestCatch: rs.bestCatch, worstPenalty: rs.worstPenalty,
-      });
-      setRunSummary(summary);
-      setScreen("gameover");
+      endRun("timeup");
       return;
     }
     const t = setInterval(() => setTimeLeft(t => t - 1), 1000);
@@ -487,17 +554,7 @@ export default function MsPetty() {
   // in the game at all yet, so ego death simply ends the run for all players.
   useEffect(() => {
     if (screen !== "game") return;
-    if (score <= -30) {
-      const rs = runStatsRef.current;
-      const summary = recordRun({
-        score, earned, disrupted: totalDisrupted,
-        level: getLevel(score).name,
-        catches: rs.catches, penalties: rs.penalties, lolz: rs.lolz,
-        bestCatch: rs.bestCatch, worstPenalty: rs.worstPenalty,
-      });
-      setRunSummary(summary);
-      setScreen("gameover");
-    }
+    if (score <= -30) endRun("egodeath");
   }, [score, screen, earned, totalDisrupted]);
 
   // Push each finished run to the live Supabase leaderboard (fire-and-forget).
@@ -644,6 +701,8 @@ export default function MsPetty() {
     prevLevelRef.current = null;
     runStatsRef.current = { catches: 0, penalties: 0, lolz: 0, bestCatch: { name: "", emoji: "", value: 0 }, worstPenalty: { name: "", emoji: "", value: 0 } };
     setRunSummary(null);
+    setEndReason(null);
+    runEndedRef.current = false;
     setScreen("game");
   };
 
@@ -654,38 +713,24 @@ export default function MsPetty() {
     setScreen("intro");
   };
 
-  // Optional crypto connect — non-holders still play normal 30s rounds.
-  const handleConnectWallet = useCallback(async () => {
-    setWalletNotice({ ok: true, text: "connecting wallet..." });
-    try {
-      const addr = await connectWallet();
-      setWalletAddress(addr);
-      const isH = await isHolder(addr);
-      setHolder(isH);
-      if (isH) {
-        try {
-          const { id, color } = await getHeldToken(addr);
-          setHeldTokenId(id);            // drives the pew sound (laser-token{id}.mp3)
-          setLaserColor(color || LIME);
-        } catch (_) { setHeldTokenId(null); setLaserColor(LIME); }
-        setWalletNotice({ ok: true, text: "∞ UNLIMITED · SUPERKIND HOLDER" });
-      } else {
-        setHeldTokenId(null); // no laser → pea shooter → silent pew
-        setWalletNotice({ ok: false, text: "no SuperKind found · normal play" });
-      }
-    } catch (err) {
-      // Fail gracefully back to normal play — never crash.
-      const msg = err && err.message === "NO_WALLET"
-        ? "no wallet detected · play normally"
-        : "wallet connect skipped · play normally";
-      setWalletNotice({ ok: false, text: msg });
-    }
+  // Wallet approved → remember it + check the arsenal. Never throws: a dead
+  // RPC comes back as { unreachable: true } and the player still plays free.
+  const handleWalletConnected = useCallback(async (address) => {
+    try { localStorage.setItem(WALLET_KEY, address); } catch (_) {}
+    const a = await checkBaseAccess(address);
+    setAccess(a);
+    return a;
+  }, []);
+
+  const handleWalletDisconnect = useCallback(() => {
+    try { localStorage.removeItem(WALLET_KEY); } catch (_) {}
+    setAccess(null);
   }, []);
 
   // ── ROUTE TO SCREENS ────────────────────────────────────────
-  if (screen === "login")    return <LoginScreen onLogin={handleLogin} onConnectWallet={handleConnectWallet} holder={holder} laserColor={laserColor} notice={walletNotice} />;
-  if (screen === "intro")    return <IntroScreen haterName={haterName} onStart={startGame} onPanel={setActivePanel} activePanel={activePanel} holder={holder} />;
-  if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} summary={runSummary} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} holder={holder} />;
+  if (screen === "login")    return <LoginScreen initialName={haterName} onLogin={handleLogin} access={access} onWalletConnected={handleWalletConnected} onWalletDisconnect={handleWalletDisconnect} />;
+  if (screen === "intro")    return <IntroScreen haterName={haterName} onStart={startGame} onPanel={setActivePanel} activePanel={activePanel} holder={holder} access={access} walletRestoring={walletRestoring} onLoginForInfinite={() => setScreen("login")} />;
+  if (screen === "gameover") return <GameOverScreen haterName={haterName} score={score} disrupted={totalDisrupted} earned={earned} summary={runSummary} onRestart={startGame} onMenu={() => setScreen("intro")} onPanel={setActivePanel} activePanel={activePanel} holder={holder} endReason={endReason} />;
 
   // ── GAME SCREEN ─────────────────────────────────────────────
   const timeColor = holder ? laserColor : (timeLeft <= 10 ? MAGENTA : timeLeft <= 20 ? YELLOW : LIME);
@@ -763,6 +808,8 @@ export default function MsPetty() {
           paused={paused}
           onPanel={(p) => { setActivePanel(p); setPaused(true); setMenuOpen(false); }}
           onQuit={() => setScreen("intro")}
+          holder={holder}
+          onBank={() => endRun("banked")}
         />
       )}
 
@@ -953,107 +1000,294 @@ function SparkleField() {
   );
 }
 
-// ── LOGIN MODAL ───────────────────────────────────────────────
-function LoginScreen({ onLogin, onConnectWallet, holder, laserColor, notice }) {
-  const [name, setName] = useState("");
+// ── LOGIN — "LOGIN FOR ∞ INFINITE PLAY" ───────────────────────
+// Wallet is the hero action. Free 30s play is always right below — a wallet
+// never blocks play: no wallet, no token, or a dead RPC all fall back to free.
+const PEW_COLLECTION = `https://www.transient.xyz/nfts/base/${TRANSIENT_CONTRACT}`;
+
+function LoginScreen({ initialName = "", onLogin, access, onWalletConnected, onWalletDisconnect }) {
+  const [name, setName] = useState(initialName || "");
+  const [wallets, setWallets] = useState(null); // null = still looking
+  const [status, setStatus] = useState("idle"); // idle | connecting | checking
+  const [err, setErr] = useState(null);
+  const mobile = isMobile();
+  const busy = status !== "idle";
+
+  // EIP-6963: every installed wallet announces itself by name + icon.
+  useEffect(() => {
+    let live = true;
+    discoverWallets().then(list => { if (live) setWallets(list); });
+    return () => { live = false; };
+  }, []);
+
+  const pick = async (w) => {
+    if (busy) return;
+    setErr(null);
+    setStatus("connecting");
+    let address;
+    try {
+      address = await connectWith(w.provider);
+    } catch (e) {
+      setStatus("idle");
+      setErr(e && e.code === 4001 ? "connect cancelled · play free below" : "wallet didn't connect · play free below");
+      return;
+    }
+    setStatus("checking");
+    try { await onWalletConnected(address); } finally { setStatus("idle"); }
+  };
+
+  const recheck = async () => {
+    if (busy || !access) return;
+    setStatus("checking");
+    try { await onWalletConnected(access.address); } finally { setStatus("idle"); }
+  };
+
+  const walletBtn = {
+    width: "100%", minHeight: 68, display: "flex", alignItems: "center", justifyContent: "center", gap: 14,
+    background: BLACK, color: CYAN, border: `3px solid ${CYAN}`, borderRadius: 6,
+    padding: "12px 16px", marginBottom: 12, cursor: busy ? "wait" : "pointer", opacity: busy ? 0.5 : 1,
+    fontFamily: PIXEL, fontSize: 14, letterSpacing: 2, lineHeight: 1.4, textAlign: "center", textDecoration: "none",
+    boxShadow: `4px 4px 0 ${BLACK}, 0 0 22px ${CYAN}55, inset 0 0 18px ${LIME}22`,
+  };
+  const nameLabel = (
+    <div style={{ fontFamily: PIXEL, fontSize: 12, color: PURPLE_LT, letterSpacing: 2, marginBottom: 10 }}>
+      HATER NAME
+    </div>
+  );
+  const nameInput = (
+    <input
+      type="text"
+      value={name}
+      onChange={e => setName(e.target.value)}
+      onKeyDown={e => e.key === "Enter" && onLogin(name)}
+      placeholder="BigHater"
+      maxLength={20}
+      style={{
+        width: "100%", background: BLACK, color: "#fff",
+        border: `2px solid ${YELLOW}`, borderRadius: 4,
+        padding: "14px 16px", fontFamily: READ, fontSize: 24,
+        outline: "none", marginBottom: 16,
+      }}
+    />
+  );
+
   return (
     <div style={{
-      minHeight: "100vh", background: BLACK,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20, fontFamily: READ, position: "relative", overflow: "hidden",
+      height: "100vh", background: BLACK,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
+      padding: "24px 16px", fontFamily: READ, position: "relative",
+      overflowX: "hidden", overflowY: "auto",
     }}>
       <SparkleField />
       <div style={{
-        position: "relative", zIndex: 2,
-        background: `linear-gradient(135deg, ${PURPLE}22, ${BLACK})`,
+        position: "relative", zIndex: 2, margin: "auto 0",
+        background: `linear-gradient(160deg, ${PURPLE}33, ${BLACK} 70%)`,
         border: `2px solid ${PURPLE}`,
-        borderRadius: 8, padding: "32px 24px",
-        maxWidth: 400, width: "100%",
+        borderRadius: 8, padding: "30px 20px 26px",
+        maxWidth: 480, width: "100%",
         boxShadow: `0 0 40px ${PURPLE}66`,
       }}>
-        <PixelHeader color={PURPLE_LT} size={20}>HATER LOGIN</PixelHeader>
-        <div style={{ fontFamily: READ, fontSize: 22, color: "#fff", margin: "20px 0", lineHeight: 1.4 }}>
-          Enter your name to save your progress, $SHOTS, and appear on the leaderboard!
-        </div>
-        <div style={{ fontFamily: PIXEL, fontSize: 10, color: PURPLE_LT, letterSpacing: 2, marginBottom: 8 }}>
-          HATER NAME
-        </div>
-        <input
-          type="text"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && onLogin(name)}
-          placeholder="BigHater"
-          maxLength={20}
-          style={{
-            width: "100%", background: BLACK, color: "#fff",
-            border: `2px solid ${YELLOW}`, borderRadius: 4,
-            padding: "14px 16px", fontFamily: READ, fontSize: 22,
-            outline: "none", marginBottom: 20,
-          }}
-          autoFocus
-        />
-        <button onClick={() => onLogin(name)} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
-          width: "100%", background: PURPLE,
-          color: "#fff", border: `2px solid ${LIME}`,
-          borderRadius: 4, padding: "16px",
-          fontFamily: PIXEL, fontSize: 13, letterSpacing: 3,
-          cursor: "pointer",
-          boxShadow: `4px 4px 0 ${BLACK}`,
+        {/* 1 · HERO */}
+        <div style={{
+          fontFamily: PIXEL, fontSize: "clamp(22px, 6.4vw, 30px)", color: LIME,
+          lineHeight: 1.5, letterSpacing: 2, textAlign: "center",
+          textShadow: `0 0 16px ${LIME}88, 0 0 32px ${LIME}44`,
         }}>
-          START HATING
-        </button>
-        <div style={{ fontFamily: READ, fontSize: 16, color: "#666", textAlign: "center", marginTop: 16, lineHeight: 1.4 }}>
-          No account or password needed.<br/>Your progress is saved locally.
+          LOGIN FOR <Inf color={YELLOW} /> INFINITE PLAY
+        </div>
+        <div style={{
+          fontFamily: MARKER, fontSize: 24, color: MAGENTA, textAlign: "center",
+          margin: "14px 0 10px", lineHeight: 1.3, textShadow: `0 0 12px ${MAGENTA}66`,
+        }}>
+          hold a SuperKind pew pew. play forever.
+        </div>
+        <div style={{ fontFamily: READ, fontSize: 22, color: "#ddd", textAlign: "center", lineHeight: 1.3, marginBottom: 22 }}>
+          no clock. your run only ends at <b style={{ color: MAGENTA }}>💀 EGO DEATH (−30)</b> — or when you <b style={{ color: LIME }}>🏦 BANK IT</b>.
         </div>
 
-        {/* ── SUPERKIND HOLDER PERKS (optional, crypto-only) ──────── */}
-        <div style={{ borderTop: `1px dashed ${PURPLE}66`, margin: "20px 0 14px" }} />
-        <div style={{ fontFamily: PIXEL, fontSize: 9, color: CYAN, letterSpacing: 2, textAlign: "center", marginBottom: 4 }}>
-          SUPERKIND HOLDER?
-        </div>
-        <div style={{ fontFamily: READ, fontSize: 15, color: "#888", textAlign: "center", marginBottom: 12, lineHeight: 1.4 }}>
-          Go ∞ infinite + a custom laser color. Optional — non-holders play the normal 30s rounds.
-        </div>
-        <button onClick={onConnectWallet} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
-          width: "100%", background: BLACK,
-          color: CYAN, border: `2px solid ${CYAN}`,
-          borderRadius: 4, padding: "14px",
-          fontFamily: PIXEL, fontSize: 11, letterSpacing: 2,
-          cursor: "pointer",
-          boxShadow: `4px 4px 0 ${BLACK}, 0 0 16px ${CYAN}44`,
-        }}>
-          🔗 CONNECT WALLET
-        </button>
+        {/* 2 · WALLETS (hero action) */}
+        {!access && (
+          <div>
+            {wallets === null && <StatusLine color={CYAN}>LOOKING FOR YOUR WALLET...</StatusLine>}
 
-        {holder && (
-          <div style={{
-            marginTop: 14, padding: "12px",
-            border: `2px solid ${laserColor}`, borderRadius: 4,
-            background: `${laserColor}11`, textAlign: "center",
-            fontFamily: PIXEL, fontSize: 10, letterSpacing: 1,
-            color: laserColor, textShadow: `0 0 10px ${laserColor}88`,
-          }}>
-            ∞ UNLIMITED · SUPERKIND HOLDER
+            {wallets && wallets.map(w => (
+              <button key={w.info.uuid} onClick={() => pick(w)} disabled={busy}
+                onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={walletBtn}>
+                {w.info.icon
+                  ? <img src={w.info.icon} alt="" width={36} height={36} style={{ width: 36, height: 36, borderRadius: 6, flexShrink: 0 }} />
+                  : <span style={{ fontSize: 30, lineHeight: 1 }}>🔗</span>}
+                <span>{(w.info.name || "WALLET").toUpperCase()}</span>
+              </button>
+            ))}
+
+            {wallets && wallets.length === 0 && mobile && (
+              <div>
+                {walletDeepLinks().map(l => (
+                  <a key={l.name} href={l.href} onTouchStart={playButtonHover} style={walletBtn}>
+                    OPEN IN {l.name.toUpperCase()}
+                  </a>
+                ))}
+                <div style={{ fontFamily: READ, fontSize: 22, color: "#ccc", textAlign: "center", lineHeight: 1.3, marginTop: 4 }}>
+                  your wallet app opens Ms. Petty inside it. log in there.
+                </div>
+              </div>
+            )}
+
+            {wallets && wallets.length === 0 && !mobile && (
+              <div style={{ fontFamily: READ, fontSize: 22, color: "#aaa", textAlign: "center", lineHeight: 1.3 }}>
+                no wallet extension found · play free below
+              </div>
+            )}
+
+            {status === "connecting" && <StatusLine color={CYAN}>APPROVE IN YOUR WALLET...</StatusLine>}
+            {status === "checking" && <StatusLine color={LIME}>CHECKING YOUR ARSENAL...</StatusLine>}
+            {err && (
+              <div style={{ fontFamily: READ, fontSize: 22, color: MAGENTA, textAlign: "center", lineHeight: 1.3, marginTop: 6 }}>
+                {err}
+              </div>
+            )}
           </div>
         )}
 
-        {notice && !holder && (
-          <div style={{
-            marginTop: 12, fontFamily: READ, fontSize: 16,
-            color: notice.ok ? LIME : PURPLE_LT,
-            textAlign: "center", lineHeight: 1.4,
-          }}>
-            {notice.text}
+        {/* 3 · PERKS CARD */}
+        {access && (
+          <div>
+            <div style={{
+              border: `3px solid ${access.infinite ? LIME : MAGENTA}`, borderRadius: 8,
+              background: `${access.infinite ? LIME : MAGENTA}11`, padding: "20px 16px 18px",
+              boxShadow: `0 0 26px ${access.infinite ? LIME : MAGENTA}44`, textAlign: "center",
+            }}>
+              <div style={{ fontFamily: PIXEL, fontSize: 12, color: "#fff", letterSpacing: 2, marginBottom: 16 }}>
+                🔗 {shortAddr(access.address)}
+              </div>
+
+              {status === "checking" && <StatusLine color={LIME}>CHECKING YOUR ARSENAL...</StatusLine>}
+
+              {status !== "checking" && access.infinite && (
+                <div>
+                  <div style={{
+                    fontFamily: PIXEL, fontSize: 18, color: LIME, lineHeight: 1.6, letterSpacing: 1,
+                    textShadow: `0 0 14px ${LIME}88`, marginBottom: 14,
+                  }}>
+                    <Inf /> INFINITE PLAY UNLOCKED
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 18 }}>
+                    <span style={{
+                      width: 30, height: 30, borderRadius: 4, flexShrink: 0,
+                      background: access.laserColor, border: "2px solid #fff",
+                      boxShadow: `0 0 16px ${access.laserColor}`,
+                    }} />
+                    <span style={{ fontFamily: PIXEL, fontSize: 14, color: access.laserColor, letterSpacing: 1, textShadow: `0 0 10px ${access.laserColor}88` }}>
+                      {access.baseTokenId ? `PEW PEW #${access.baseTokenId}` : "PEW PEW HELD"}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {status !== "checking" && !access.infinite && access.unreachable && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontFamily: READ, fontSize: 24, color: MAGENTA, lineHeight: 1.3, marginBottom: 12 }}>
+                    couldn't reach Base to check · you still play free
+                  </div>
+                  <button onClick={recheck} onMouseEnter={playButtonHover} style={{
+                    background: BLACK, color: CYAN, border: `2px solid ${CYAN}`, borderRadius: 4,
+                    padding: "12px 16px", fontFamily: PIXEL, fontSize: 12, letterSpacing: 2, cursor: "pointer",
+                  }}>
+                    ↻ CHECK AGAIN
+                  </button>
+                </div>
+              )}
+
+              {status !== "checking" && !access.infinite && !access.unreachable && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontFamily: READ, fontSize: 24, color: MAGENTA, lineHeight: 1.3, marginBottom: 12 }}>
+                    no SuperKind found · you still play free
+                  </div>
+                  <a href={PEW_COLLECTION} target="_blank" rel="noopener noreferrer" style={{
+                    display: "inline-block", background: PINK, color: BLACK,
+                    border: `2px solid ${LIME}`, borderRadius: 4, padding: "12px 16px",
+                    fontFamily: PIXEL, fontSize: 12, letterSpacing: 1, textDecoration: "none", lineHeight: 1.5,
+                  }}>
+                    🛒 COLLECT A PEW PEW →
+                  </a>
+                </div>
+              )}
+
+              <div style={{ textAlign: "left" }}>
+                {nameLabel}
+                {nameInput}
+              </div>
+              <button onClick={() => onLogin(name)} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
+                width: "100%", minHeight: 64, background: LIME, color: BLACK,
+                border: `3px solid ${BLACK}`, borderRadius: 4, padding: "16px",
+                fontFamily: PIXEL, fontSize: 18, letterSpacing: 4, cursor: "pointer",
+                boxShadow: `4px 4px 0 ${BLACK}, 0 0 26px ${LIME}88`,
+              }}>
+                ENTER
+              </button>
+            </div>
+            <button onClick={onWalletDisconnect} style={{
+              display: "block", width: "100%", marginTop: 14, background: "transparent",
+              border: "none", color: "#aaa", fontFamily: READ, fontSize: 22, cursor: "pointer",
+              textDecoration: "underline", textUnderlineOffset: 4,
+            }}>
+              ↺ use a different wallet · or play free
+            </button>
+          </div>
+        )}
+
+        {/* 4 · FREE PATH */}
+        {!access && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "26px 0 18px" }}>
+              <div style={{ flex: 1, borderTop: `2px dashed ${PURPLE}` }} />
+              <span style={{ fontFamily: PIXEL, fontSize: 12, color: PURPLE_LT }}>OR</span>
+              <div style={{ flex: 1, borderTop: `2px dashed ${PURPLE}` }} />
+            </div>
+            <div style={{
+              fontFamily: PIXEL, fontSize: 13, color: YELLOW, letterSpacing: 2, lineHeight: 1.7,
+              textAlign: "center", marginBottom: 18, textShadow: `0 0 10px ${YELLOW}55`,
+            }}>
+              PLAY FREE · 30s SPEED ROUNDS
+            </div>
+            {nameLabel}
+            {nameInput}
+            <button onClick={() => onLogin(name)} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
+              width: "100%", minHeight: 64, background: PURPLE,
+              color: "#fff", border: `2px solid ${LIME}`,
+              borderRadius: 4, padding: "16px",
+              fontFamily: PIXEL, fontSize: 14, letterSpacing: 3,
+              cursor: "pointer",
+              boxShadow: `4px 4px 0 ${BLACK}`,
+            }}>
+              START HATING
+            </button>
+            <div style={{ fontFamily: READ, fontSize: 20, color: "#888", textAlign: "center", marginTop: 14, lineHeight: 1.3 }}>
+              No account or password needed.<br/>Your progress is saved locally.
+            </div>
           </div>
         )}
       </div>
+      <GlobalStyles />
+    </div>
+  );
+}
+
+function StatusLine({ color, children }) {
+  return (
+    <div style={{
+      fontFamily: PIXEL, fontSize: 13, color, textAlign: "center",
+      letterSpacing: 2, lineHeight: 1.6, margin: "8px 0 14px",
+      textShadow: `0 0 10px ${color}88`,
+      animation: "blink 0.7s ease-in-out infinite alternate",
+    }}>
+      {children}
     </div>
   );
 }
 
 // ── INTRO SCREEN ──────────────────────────────────────────────
-function IntroScreen({ haterName, onStart, onPanel, activePanel, holder = false }) {
+function IntroScreen({ haterName, onStart, onPanel, activePanel, holder = false, access = null, walletRestoring = false, onLoginForInfinite }) {
   return (
     <div style={{
       minHeight: "100vh", height: "100vh",
@@ -1120,6 +1354,42 @@ function IntroScreen({ haterName, onStart, onPanel, activePanel, holder = false 
           🔫 PEW PEW LET'S GO
         </button>
 
+        {/* ∞ status — holders see their perk; everyone else gets the door to it */}
+        {holder ? (
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap",
+            border: `2px solid ${LIME}`, borderRadius: 4, background: `${LIME}11`,
+            padding: "14px 12px", marginBottom: 16, boxShadow: `0 0 18px ${LIME}44`,
+          }}>
+            <span style={{ fontFamily: PIXEL, fontSize: 13, color: LIME, letterSpacing: 1, textShadow: `0 0 10px ${LIME}88` }}>
+              <Inf /> INFINITE PLAY
+            </span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 18, height: 18, borderRadius: 3, background: laserSwatch(access), border: "2px solid #fff", boxShadow: `0 0 10px ${laserSwatch(access)}` }} />
+              <span style={{ fontFamily: PIXEL, fontSize: 12, color: laserSwatch(access) }}>
+                {access && access.baseTokenId ? `PEW PEW #${access.baseTokenId}` : "PEW PEW"}
+              </span>
+            </span>
+          </div>
+        ) : walletRestoring ? (
+          <div style={{
+            fontFamily: PIXEL, fontSize: 12, color: CYAN, letterSpacing: 2, marginBottom: 16, lineHeight: 1.6,
+            animation: "blink 0.7s ease-in-out infinite alternate",
+          }}>
+            CHECKING YOUR ARSENAL...
+          </div>
+        ) : (
+          <button onClick={onLoginForInfinite} onMouseEnter={playButtonHover} onTouchStart={playButtonHover} style={{
+            width: "100%", minHeight: 60, background: BLACK, color: CYAN,
+            border: `3px solid ${CYAN}`, borderRadius: 4, padding: "14px 12px",
+            fontFamily: PIXEL, fontSize: 12, letterSpacing: 2, lineHeight: 1.5,
+            cursor: "pointer", marginBottom: 16,
+            boxShadow: `4px 4px 0 ${BLACK}, 0 0 20px ${CYAN}55, inset 0 0 14px ${LIME}22`,
+          }}>
+            🔗 LOGIN FOR <Inf color={YELLOW} /> INFINITE PLAY
+          </button>
+        )}
+
         {/* Menu buttons grid */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
           <MenuButton color={YELLOW} onClick={() => onPanel('leaderboard')}>🏆 LEADERBOARD</MenuButton>
@@ -1165,7 +1435,7 @@ function MenuButton({ children, color, onClick }) {
 }
 
 // ── IN-GAME SLIDE-OUT MENU ────────────────────────────────────
-function InGameMenu({ onPause, paused, onPanel, onQuit }) {
+function InGameMenu({ onPause, paused, onPanel, onQuit, holder = false, onBank }) {
   return (
     <div style={{
       position: "absolute", top: 130, right: 12, zIndex: 24,
@@ -1179,7 +1449,10 @@ function InGameMenu({ onPause, paused, onPanel, onQuit }) {
       <SideButton color={LIME} onClick={() => onPanel('guide')}>📖 ITEMS</SideButton>
       <SideButton color={LIME} onClick={() => onPanel('how')}>❓ HELP</SideButton>
       <SideButton color={LIME} onClick={() => onPanel('lore')}>📜 LORE</SideButton>
-      <SideButton color={MAGENTA} onClick={onQuit}>✕ QUIT</SideButton>
+      {/* ∞ runs have no clock — holders cash out through the normal game-over path. */}
+      {holder
+        ? <SideButton color={LIME} onClick={onBank}>🏦 BANK IT</SideButton>
+        : <SideButton color={MAGENTA} onClick={onQuit}>✕ QUIT</SideButton>}
     </div>
   );
 }
@@ -1319,6 +1592,7 @@ function HowToPlayPanel() {
     { emoji: "⏱️", title: "BEAT THE CLOCK", body: "Time is everything. New levels add bonus seconds. Missing a green item costs 2." },
     { emoji: "📈", title: "LEVEL UP BY SCORE", body: "Hit a score threshold, the world transforms. 11 levels. Each one different." },
     { emoji: "💰", title: "$SHOTS = SCORE", body: "Every point you earn is a $SHOT. Lifetime $SHOTS save automatically." },
+    { emoji: "🔫", title: "HOLDER PERKS", body: "SuperKind pew pew (Base) → ∞ play + your laser color. No clock: your run ends at 💀 EGO DEATH (−30) — or tap 🏦 BANK IT in the menu to cash out." },
   ];
   return (
     <div style={{ fontFamily: READ, color: "#fff" }}>
@@ -1337,7 +1611,7 @@ function HowToPlayPanel() {
             <div style={{ fontFamily: PIXEL, fontSize: 11, color: LIME, letterSpacing: 1, marginBottom: 6 }}>
               {r.title}
             </div>
-            <div style={{ fontFamily: READ, fontSize: 19, color: "#ccc", lineHeight: 1.4 }}>
+            <div style={{ fontFamily: READ, fontSize: 20, color: "#ccc", lineHeight: 1.4 }}>
               {r.body}
             </div>
           </div>
@@ -1939,7 +2213,14 @@ const OUTRO_LINES = [
   "you played. the smile played back.",
 ];
 
-function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestart, onMenu, onPanel, activePanel, holder = false }) {
+// How the run ended → game-over header. Timed runs keep the original line.
+const END_HEADERS = {
+  egodeath: { text: "💀 EGO DEATH", sub: "−30. the smile won this one.", color: MAGENTA },
+  banked:   { text: <>🏦 BANKED · <Inf /> RUN</>, sub: "you walked away on your own terms.", color: LIME },
+};
+
+function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestart, onMenu, onPanel, activePanel, holder = false, endReason = null }) {
+  const endHeader = END_HEADERS[endReason] || null;
   const outro = OUTRO_LINES[Math.floor(Math.random() * OUTRO_LINES.length)];
   const run = (summary && summary.lastRun) || {
     scoreDelta: 0, isNewBest: false, catches: 0, penalties: 0, lolz: 0,
@@ -1964,9 +2245,23 @@ function GameOverScreen({ haterName, score, disrupted, earned, summary, onRestar
     }}>
       <SparkleField />
       <div style={{ position: "relative", zIndex: 2, maxWidth: 400, width: "100%", textAlign: "center", margin: "auto 0" }}>
-        <div style={{ fontFamily: PIXEL, fontSize: 11, color: MAGENTA, letterSpacing: 4, marginBottom: 14 }}>
-          THAT'S ENOUGH FOR NOW
-        </div>
+        {endHeader ? (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{
+              fontFamily: PIXEL, fontSize: 20, color: endHeader.color, letterSpacing: 3, lineHeight: 1.5,
+              textShadow: `0 0 16px ${endHeader.color}, 0 0 32px ${endHeader.color}55`,
+            }}>
+              {endHeader.text}
+            </div>
+            <div style={{ fontFamily: MARKER, fontSize: 20, color: "#fff", marginTop: 6 }}>
+              {endHeader.sub}
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontFamily: PIXEL, fontSize: 11, color: MAGENTA, letterSpacing: 4, marginBottom: 14 }}>
+            THAT'S ENOUGH FOR NOW
+          </div>
+        )}
 
         <img src={VINTAGE_LOGO} alt={LOGO_ALT} style={{
           display: "block", margin: "0 auto 8px",
@@ -2121,6 +2416,10 @@ function GlobalStyles() {
       @keyframes sparkle {
         0%, 100% { opacity: 0.2; transform: scale(1); }
         50%      { opacity: 0.9; transform: scale(1.6); }
+      }
+      @keyframes blink {
+        from { opacity: 1; }
+        to   { opacity: 0.35; }
       }
       @keyframes slideIn {
         from { transform: translateX(20px); opacity: 0; }
