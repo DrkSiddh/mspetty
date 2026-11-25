@@ -1,0 +1,4 @@
+# Car models (~23 MB) are not committed. Pull them from the live deploy:
+#   sh objets-art/tools/mirror-live-assets.sh
+cars
+radio
