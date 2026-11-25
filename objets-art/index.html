@@ -362,6 +362,7 @@ body.autopilot .joy,body.autopilot .tbtns .boost{display:none}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
+<link rel="stylesheet" href="petty/petty.css">
 
 <canvas id="gl" tabindex="0" aria-label="3D showroom of the SuperKind Toy Co. vehicle collection"></canvas>
 
@@ -407,6 +408,7 @@ body.autopilot .joy,body.autopilot .tbtns .boost{display:none}
     <div class="cta-row">
       <button class="inside-btn wide" id="insideBtn" hidden><span class="eye"></span>Step inside<span class="arr">&rarr;</span></button>
       <button class="inside-btn wide drive" id="driveBtn"><span class="eye"></span>Test drive<span class="arr">&rarr;</span></button>
+      <button class="inside-btn wide petty" id="pettyBtn"><span class="eye"></span>Play Ms. Petty<span class="arr">&rarr;</span></button>
     </div>
     <div class="card-foot">
       <div class="warn">Collector grade art objet. Not a toy.</div>
@@ -551,7 +553,7 @@ body.autopilot .joy,body.autopilot .tbtns .boost{display:none}
         <h2 id="arcadeTitle">These cars ride in the game</h2>
         <p class="lead">Ms. Petty: Big Girly Pew Pew is the arcade game where SuperKind Toy Co. gear comes to play. Hold an Objets vehicle in your wallet on Base or Ethereum and it changes how the game plays, with extra custom options for your ride.</p>
         <div class="quote">"...with a vehicle, you can shoot and move, spraying lasers. It's haute. There's more but we don't want to give spoilers here."</div>
-        <div class="btnrow"><a class="bigbtn primary" href="https://mspetty.blaqqat.games" target="_blank" rel="noopener">Play Ms. Petty</a><button class="bigbtn ghost" id="arcadeDrive">Test drive a car first</button></div>
+        <div class="btnrow"><button class="bigbtn primary" id="arcadePetty">Play Ms. Petty here</button><a class="bigbtn ghost" href="https://mspetty.blaqqat.games" target="_blank" rel="noopener">Play on mspetty.blaqqat.games</a><button class="bigbtn ghost" id="arcadeDrive">Test drive a car first</button></div>
       </div>
     </div>
     <div class="perk"><h3>Holder perks</h3><p style="margin:0">Your vehicle lives on Base or Ethereum. Keep it in the wallet you play with, and Ms. Petty reads it and unlocks your custom options.</p></div>
@@ -609,6 +611,7 @@ const pad=n=>String(n).padStart(2,'0');
 const $=id=>document.getElementById(id);
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const coarse=matchMedia('(pointer: coarse)').matches;
+let PETTY=null; // Petty Run (petty/petty-run.js) once loaded
 
 /* ---------- UI scaffolding ---------- */
 const tilesEl=$('tiles');
@@ -1230,7 +1233,7 @@ function frame(){
   for(const m of twinkles)m.opacity=.72+Math.sin(t*2.3)*.18;
   if(mode!=='inside')canvas.style.cursor=mode==='lineup'&&hovered>=0?'pointer':'';
   if((mode==='inside'||radio.playing)&&(frameN++&1)===0){for(const h of huds)if(h.car===current)drawHud(h,t)}
-  if(D.on){driveUpdate(dt,t);spaceBg.material.uniforms.t.value=t}else controls.update();
+  if(D.on){if(D.petty&&PETTY)PETTY.update(dt,t);else driveUpdate(dt,t);spaceBg.material.uniforms.t.value=t}else controls.update();
   composer.render();
   if(D.snapNext){D.snapNext=false;captureSnap()}
   requestAnimationFrame(frame);
@@ -1339,6 +1342,7 @@ radioUI=function(){
   $('rLabel').textContent=st.name+' · '+pad(radio.i+1)+' / '+pad(EPISODES.length);
   $('rStation').textContent=STATIONS[((radio.st||0)+1)%STATIONS.length].name;
   $('dhStationLbl').textContent=st.name;$('dhRadioLbl').textContent=radio.playing?'Pause radio':'Play radio';
+  if(PETTY)PETTY.radioUI(st.name,radio.playing);
 };
 $('rStationBtn').onclick=switchStation;$('dhStation').onclick=switchStation;$('dhRadio').onclick=radioToggle;
 loadStation(1);
@@ -1404,9 +1408,9 @@ const rocks=[];
 const lasers=[],laserGeo=new THREE.CylinderGeometry(.12,.12,7,6);laserGeo.rotateX(Math.PI/2);
 const laserMat=new THREE.MeshBasicMaterial({color:new THREE.Color('#ff4fb0').multiplyScalar(2.2)});
 const bursts=[];
-function burst(pos){const N=40,p=new Float32Array(N*3),v=[];for(let k=0;k<N;k++){p[k*3]=pos.x;p[k*3+1]=pos.y;p[k*3+2]=pos.z;v.push(new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(20+Math.random()*40))}
+function burst(pos,col){const N=40,p=new Float32Array(N*3),v=[];for(let k=0;k<N;k++){p[k*3]=pos.x;p[k*3+1]=pos.y;p[k*3+2]=pos.z;v.push(new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(20+Math.random()*40))}
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));
-  const m=new THREE.PointsMaterial({size:1.4,map:sparkTex,color:new THREE.Color('#ffb0e0').multiplyScalar(2),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
+  const m=new THREE.PointsMaterial({size:1.4,map:sparkTex,color:new THREE.Color(col||'#ffb0e0').multiplyScalar(2),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending});
   const pts=new THREE.Points(g,m);space.add(pts);bursts.push({pts,v,life:1})}
 
 const rig=new THREE.Group(),driveCar=new THREE.Group();rig.add(driveCar);space.add(rig);
@@ -1414,8 +1418,8 @@ const rig=new THREE.Group(),driveCar=new THREE.Group();rig.add(driveCar);space.a
 const wmCanvas=document.createElement('canvas');wmCanvas.width=1024;wmCanvas.height=128;
 const wmTex=new THREE.CanvasTexture(wmCanvas);wmTex.colorSpace=THREE.SRGBColorSpace;
 const wm=new THREE.Mesh(new THREE.PlaneGeometry(1,.125),new THREE.MeshBasicMaterial({map:wmTex,transparent:true,depthTest:false,depthWrite:false}));wm.renderOrder=999;
-function drawWm(name){const g=wmCanvas.getContext('2d');g.clearRect(0,0,1024,128);g.fillStyle='rgba(10,3,9,.55)';g.beginPath();g.roundRect?g.roundRect(4,14,1016,100,50):g.rect(4,14,1016,100);g.fill();
-  g.fillStyle='#ff3355';g.beginPath();g.arc(62,64,16,0,7);g.fill();g.fillStyle='#fff';g.font='400 46px Anta, Unbounded, sans-serif';g.textBaseline='middle';g.fillText('I TEST DROVE THE '+name.toUpperCase(),96,58);
+function drawWm(name,lead){const g=wmCanvas.getContext('2d');g.clearRect(0,0,1024,128);g.fillStyle='rgba(10,3,9,.55)';g.beginPath();g.roundRect?g.roundRect(4,14,1016,100,50):g.rect(4,14,1016,100);g.fill();
+  g.fillStyle='#ff3355';g.beginPath();g.arc(62,64,16,0,7);g.fill();g.fillStyle='#fff';g.font='400 46px Anta, Unbounded, sans-serif';g.textBaseline='middle';g.fillText((lead||'I TEST DROVE THE ')+name.toUpperCase(),96,58);
   g.fillStyle='#f0c869';g.font='700 24px "JetBrains Mono", monospace';g.textAlign='right';g.fillText('OBJETS.ART',1000,96);g.textAlign='left';wmTex.needsUpdate=true}
 function placeWm(){const h=2*Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*1.0,w=h*camera.aspect;const sc=Math.min(w*.62,h*1.1);wm.scale.set(sc,sc,1);wm.position.set(0,-h/2+sc*.125*.5+h*.03,-1)}
 
@@ -1449,24 +1453,25 @@ function carForward(car){
   return new THREE.Vector3(-1,0,0).applyQuaternion(holder.quaternion).setY(0).normalize();
 }
 
-async function startDrive(auto){
+async function startDrive(auto,opts){
+  const petty=!!(opts&&opts.petty);
   if(D.on||busy||current<0)return;
   const car=holder.children[0];if(!car)return;
   closeModal('offerModal');
   if(mode==='inside'){await setMode('showroom')}
-  D.on=true;D.auto=auto;D.car=current;D.returning=false;D.snaps=[];D.stats={time:0,dist:0,top:0,gates:0,hits:0,mode:auto?'Autopilot':'Took the wheel'};
+  D.on=true;D.petty=petty;D.auto=auto;D.car=current;D.returning=false;D.snaps=[];D.stats={time:0,dist:0,top:0,gates:0,hits:0,mode:auto?'Autopilot':'Took the wheel'};
   document.body.classList.toggle('autopilot',auto);document.body.classList.toggle('touchdrive',coarse);
   $('dhCar').textContent=CARS[current].name;$('dhMode').textContent=auto?'AUTOPILOT':'HANDS ON';$('dhTakeLbl').textContent=auto?'Take the wheel':'Autopilot';
   $('dhKeys').innerHTML=auto?'ILLI Motors is flying &middot; SPACE or click to fire lasers':'A / D steer &middot; W / S climb and dive &middot; SHIFT boost &middot; SPACE fire lasers';
-  drawWm(CARS[current].name);
-  mode='drive';document.body.dataset.mode='drive';
+  drawWm(CARS[current].name,petty?'PETTY RUN · ':undefined);
+  mode='drive';document.body.dataset.mode=petty?'petty':'drive';
   controls.enabled=false;tableSpeed=0;holder.userData.anim=true;
   camera.clearViewOffset();camera.fov=58;camera.near=.05;camera.far=9000;camera.updateProjectionMatrix();
   camera.add(wm);placeWm();
   scene.add(camera);
   startRecording();
   // 1) leave the showroom
-  D.phase='launch';msg('Leaving the showroom<small>ILLI Motors test drive &middot; '+CARS[current].name+'</small>',3000);
+  D.phase='launch';msg('Leaving the showroom<small>'+(petty?'Ms. Petty &middot; Petty Run &middot; ':'ILLI Motors test drive &middot; ')+CARS[current].name+'</small>',3000);
   const fwd=carForward(car);D.fwd=fwd;
   const p0=holder.position.clone(),r0=holder.rotation.y;
   await tween(reduce?1:2600,(k,p)=>{
@@ -1490,6 +1495,7 @@ async function startDrive(auto){
   D.u=0;rig.position.copy(PATH.getPointAt(0));rig.quaternion.setFromRotationMatrix(new THREE.Matrix4().lookAt(rig.position,PATH.getPointAt(.004),new THREE.Vector3(0,1,0)));
   D.speed=30;D.camQ=rig.quaternion.clone();
   gates.forEach(g=>{g.passed=false;g.mesh.material=g.mesh.material});rocks.forEach(r=>{r.alive=true;r.mesh.visible=true});
+  if(petty){D.phase='petty';D.t0=performance.now();D.snapAt=[];setTimeout(()=>flash(false),60);if(opts.onCosmos)opts.onCosmos();return}
   D.phase='cruise';D.t0=performance.now();D.snapAt=[.12,.38,.62,.88].map(f=>f*DRIVE_SECONDS);
   setTimeout(()=>flash(false),60);
   msg(auto?'Autopilot engaged<small>Sit back and fire lasers whenever you like</small>':'You have the wheel<small>Fly through the star gates. Blast the rocks.</small>',3800);
@@ -1526,6 +1532,7 @@ async function landHome(){
   controls.target.copy(g.tgt);camera.position.copy(g.pos);controls.enabled=true;controls.enableZoom=false;
   computeFit();camera.updateProjectionMatrix();tableSpeed=.32;
   ['showroom','inspect','lineup'].forEach(k=>$('m-'+k).setAttribute('aria-pressed',k==='showroom'?'true':'false'));
+  if(D.petty){D.petty=false;if(PETTY)PETTY.onLanded({video:D.video,videoExt:D.videoExt,snaps:D.snaps.slice(),car:D.car});return}
   lastDrive={car:D.car,stats:D.stats,snaps:D.snaps.slice(),video:D.video,videoExt:D.videoExt};
   saveRecord('drive',{email:viewerEmail,mode:D.stats.mode,stats:{...D.stats,time:Math.round(D.stats.time)}});
   $('broAsk').hidden=false;$('broShow').hidden=true;$('broAskText').textContent='We made one from your drive in the '+CARS[D.car].name+': your stats, three frames from the trip and a QR code that brings you or a friend straight back to this car when you are ready to buy.';
@@ -1700,18 +1707,19 @@ $('broChip').onclick=()=>{if(!lastDrive)return;openModal('broModal')};
 function shareText(){const c=CARS[lastDrive?lastDrive.car:current],s=lastDrive&&lastDrive.stats;
   return 'I just test drove the '+c.name+' from SuperKind Toy Co. at Objets.art.'+(s?' Cruised the cosmos, hit '+s.gates+' star gates and blasted '+s.hits+' rocks before ILLI Motors brought me home.':'')+' Take yours for a spin: '+COLLECTION_URL+'/#'+c.id+' #ObjetsArt #SuperKindToyCo #MsPetty'}
 function buildSocials(){
+  if(PETTY&&PETTY.shareActive)return PETTY.buildSocials();
   const txt=$('caption').value,u=COLLECTION_URL+'/#'+CARS[lastDrive?lastDrive.car:current].id,e=encodeURIComponent;
   const L=[['X','https://x.com/intent/post?text='+e(txt)],['Facebook','https://www.facebook.com/sharer/sharer.php?u='+e(u)],['LinkedIn','https://www.linkedin.com/sharing/share-offsite/?url='+e(u)],['Threads','https://www.threads.net/intent/post?text='+e(txt)],['Bluesky','https://bsky.app/intent/compose?text='+e(txt)],['Telegram','https://t.me/share/url?url='+e(u)+'&text='+e(txt)]];
   $('socials').innerHTML=L.map(([n,h])=>'<a href="'+h+'" target="_blank" rel="noopener">'+n+'</a>').join('');
 }
-$('openShare').onclick=()=>{$('caption').value=shareText();buildSocials();
+$('openShare').onclick=()=>{if(PETTY)PETTY.shareActive=false;$('caption').value=shareText();buildSocials();
   const canFiles=!!(navigator.canShare&&lastDrive&&lastDrive.video&&(()=>{try{return navigator.canShare({files:[new File([lastDrive.video],'drive.'+(lastDrive.videoExt||'webm'),{type:lastDrive.video.type})]})}catch(e){return false}})());
   $('nativeShare').hidden=!canFiles;$('shareDrawer').classList.add('open')};
 $('caption').addEventListener('input',buildSocials);
 $('shareClose').onclick=()=>$('shareDrawer').classList.remove('open');
 $('copyCap').onclick=()=>{const t=$('caption').value;const done=()=>{$('copyMsg').textContent='Caption copied.'};
   try{navigator.clipboard.writeText(t).then(done,()=>{$('caption').select();$('copyMsg').textContent='Select all and copy the caption.'})}catch(e){$('caption').select();$('copyMsg').textContent='Select all and copy the caption.'}};
-$('nativeShare').onclick=async()=>{try{await navigator.share({files:[new File([lastDrive.video],'test-drive-'+slug()+'.'+(lastDrive.videoExt||'webm'),{type:lastDrive.video.type})],text:$('caption').value})}catch(e){}};
+$('nativeShare').onclick=async()=>{if(PETTY&&PETTY.shareActive){PETTY.nativeShare();return}try{await navigator.share({files:[new File([lastDrive.video],'test-drive-'+slug()+'.'+(lastDrive.videoExt||'webm'),{type:lastDrive.video.type})],text:$('caption').value})}catch(e){}};
 $('enterBtn').onclick=async()=>{const u=$('entryUrl').value.trim();
   if(!/^https?:\/\/\S+\.\S+/.test(u)){$('entryMsg').className='err';$('entryMsg').textContent='Paste the full link to your post, starting with https://';return}
   $('enterBtn').disabled=true;const ok=await saveRecord('giveaway_entry',{email:viewerEmail,post_url:u});$('enterBtn').disabled=false;
@@ -1735,13 +1743,15 @@ const PAGE_STEPS=[
   ['Get your brochure','After about two and a half minutes ILLI Motors takes the wheel and brings you home. Say yes to the brochure: your stats, trip frames and a QR code back to the car.'],
   ['Record and share','Your drive is recorded in your browser. Save the video and brochure, then post them. The share panel has your caption and every network.'],
   ['Win a car','A chance to win a car is coming soon. Paste the link to your post in the share panel. That link is your entry ticket.'],
-  ['Play Ms. Petty','Hold one of these vehicles in your wallet on Base or Ethereum and Ms. Petty plays differently, with extra custom options. Open Arcade to learn more.']
+  ['Play Ms. Petty','Tap Play Ms. Petty on any car. Fly it out of the showroom, shoot the toxic positivity balloons with laser pew pews, fly through the lime stuff and dodge the magenta stuff. Then get your receipts.'],
+  ['Holder perks','Hold one of these vehicles in your wallet on Base or Ethereum and Ms. Petty plays differently, with extra custom options. Open Arcade to learn more.']
 ];
 function renderManual(tab){
   const T=$('manualTabs');
-  T.innerHTML=['<button role="tab" data-tab="page">How it works</button>'].concat(CARS.map(c=>'<button role="tab" data-tab="'+c.id+'">'+c.name+'</button>')).join('');
+  T.innerHTML=['<button role="tab" data-tab="page">How it works</button>','<button role="tab" data-tab="petty-how">How to play</button>','<button role="tab" data-tab="petty-items">Items</button>'].concat(CARS.map(c=>'<button role="tab" data-tab="'+c.id+'">'+c.name+'</button>')).join('');
   T.querySelectorAll('button').forEach(b=>{b.setAttribute('aria-selected',b.dataset.tab===tab?'true':'false');b.onclick=()=>renderManual(b.dataset.tab)});
   const B=$('manualBody');
+  if(tab.startsWith('petty-')){$('manualTitle').textContent=tab==='petty-how'?'How to play Ms. Petty':'Every item in Ms. Petty';if(PETTY)PETTY.renderManualTab(tab,B);else B.innerHTML='<p class="lead">Ms. Petty is loading. Try again in a second.</p>';return}
   if(tab==='page'){
     $('manualTitle').textContent='How the showroom works';
     B.innerHTML='<div class="steps">'+PAGE_STEPS.map((s,i)=>'<div class="stepcard"><div class="n">STEP '+pad(i+1)+'</div><h3>'+s[0]+'</h3><p>'+s[1]+'</p></div>').join('')+'</div>';
@@ -1764,10 +1774,22 @@ $('arcadeBtn').onclick=()=>openModal('arcadeModal');
 // first visit: show the manual once the showroom has loaded
 try{if(!localStorage.getItem('objets.manualSeen')){setTimeout(()=>{if(!document.querySelector('.modal.open')&&!D.on){renderManual('page');openModal('manualModal')}},7000);localStorage.setItem('objets.manualSeen','1')}}catch(e){}
 
+/* ---------- Petty Run bridge ---------- */
+/* Petty Run lives in petty/. It reads the showroom through this bridge and never
+   changes the showroom, test drive, radio or brochure when it is not running. */
+$('pettyBtn').onclick=()=>{if(PETTY)PETTY.openLobby(current>=0?current:0)};
+$('arcadePetty').onclick=()=>{closeModal('arcadeModal');if(PETTY)PETTY.openLobby(current>=0?current:0)};
+function stepBursts(dt){for(let i=bursts.length-1;i>=0;i--){const B=bursts[i];B.life-=dt*.9;const a=B.pts.geometry.attributes.position;for(let k=0;k<B.v.length;k++){a.array[k*3]+=B.v[k].x*dt;a.array[k*3+1]+=B.v[k].y*dt;a.array[k*3+2]+=B.v[k].z*dt}a.needsUpdate=true;B.pts.material.opacity=Math.max(0,B.life);if(B.life<=0){space.remove(B.pts);bursts.splice(i,1)}}}
+const PETTY_BRIDGE={THREE,CARS,D,space,spaceBg,farStars,dust,dustGeo,dustPos,DUST,gates,rocks,portal,rig,driveCar,holder,scene,camera,canvas,renderer,composer,bloom,controls,sparkTex,radio,STATIONS,
+  get current(){return current},get busy(){return busy},get mode(){return mode},get viewerEmail(){return viewerEmail},
+  SB_URL,SB_KEY,COLLECTION_URL,coarse,reduce,$,pad,fmt,sleep,tween,easeIO,flash,msg,hint,burst,stepBursts,captureSnap,startDrive,landHome,pick,
+  openModal,closeModal,saveRecord,saveFile,loadImg,cover,rr,fitFont,radioToggle,switchStation,ensureAudio,ensureAnalyser,radioPlay,placeWm};
+import('./petty/petty-run.js').then(m=>{PETTY=m.initPettyRun(PETTY_BRIDGE)}).catch(e=>console.warn('Petty Run did not load',e));
+
 /* ---------- boot ---------- */
 document.body.dataset.mode='showroom';
 loadEpisodes();
-const fromHash=CARS.findIndex(c=>'#'+c.id===location.hash);
+const fromHash=CARS.findIndex(c=>'#'+c.id===location.hash||'#play-'+c.id===location.hash);
 const startIdx=fromHash>=0?fromHash:0;
 setCard(startIdx);
 computeFit();camera.updateProjectionMatrix();

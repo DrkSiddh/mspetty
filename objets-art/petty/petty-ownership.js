@@ -1,0 +1,206 @@
+// ============================================================
+// PETTY RUN — OWNERSHIP (port of the Ms. Petty gate, src/superkindGate.js on
+// branch claude/ms-petty-2d-update-9jh1k7). Raw EIP-1193 + raw eth_call over
+// free public RPCs. No SDK. Every address and token id lives in OWNERSHIP.
+// Each source fails soft: a dead RPC never blocks a Speed Round.
+// ============================================================
+
+export const OWNERSHIP = {
+  // 1) LASER PEW PEWS — Base mainnet, Transient Labs (lab.transient.xyz contract 2737).
+  //    Holding ANY token = laser holder. Every minted id is checked (totalSupply → ownerOf).
+  lasers: {
+    chain: "Base",
+    rpcs: ["https://mainnet.base.org"],
+    contract: "0x3bd644bb69e70a9b57e4213b977257aea9ca45bf",
+    // Names read from each token's Transient Labs page on 2026-11-25. A token minted
+    // after that shows as "PEW PEW #id" until it is added here.
+    names: {
+      1: "Big Phat Red", 2: "Super Blaum T3", 3: "Commish T50", 4: "The Disruptor Disruptor 9000",
+      5: "Freq Ray", 6: "Big Mouth T3", 7: "Point Guard T4", 8: "UpSynchronizer T10",
+      9: "Golden Snubnose Piru T57", 10: "Enlightner Blasto T14", 11: "Alien Plasma T51",
+    },
+    // Live game colors: 1 = neon red, 2 = purple. The live game paints every other
+    // token lime; here lime means "catch", so other tokens fire gold. (assumption)
+    colors: { 1: "#FF3B3B", 2: "#7B2FBE" },
+    otherColor: "#F0C869",
+    sound: (id) => `sounds/laser-token${id}.mp3`, // the live game's map (playPew)
+  },
+  // 2) SHIPS — Ethereum mainnet, Manifold "ILLI$T X MAXXIMILLIAN" (ERC-1155).
+  //    Ship tokens are ids 5 and up. Ids 1–4 are the original ILLI$T cars.
+  ships: {
+    chain: "Ethereum",
+    rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://cloudflare-eth.com"],
+    contract: "0x378d5c126ed319db86c15ef4f6bd02885d6d0bf6",
+    minId: 5,
+    scanMax: 64,
+    // token id → Objets ship id. EMPTY ON PURPOSE: on 2026-11-25 totalSupply(id) is 0
+    // for every id from 5 to 64, so no ship token exists to read a name from yet.
+    // Fill this in as ships mint, e.g. { 5: "star-drift" }.
+    byTokenId: {},
+  },
+  // 3) MANIFOLD TOKEN — manifold.xyz/@maxximillian/id/1948145904
+  //    Resolved via apps.api.manifoldxyz.dev: "The Phaedra Solar Supercharger",
+  //    Ethereum, same ILLI$T contract as the ships, token id 4, 99 editions.
+  //    It is not one of the six Objets ships, so it maps to no ship.
+  manifold: {
+    instanceId: 1948145904,
+    name: "The Phaedra Solar Supercharger",
+    chain: "Ethereum",
+    contract: "0x378d5c126ed319db86c15ef4f6bd02885d6d0bf6",
+    tokenId: 4,
+    url: "https://manifold.xyz/@maxximillian/id/1948145904",
+    ship: null,
+  },
+};
+
+const IFACE_1155 = "0xd9b67a26";
+
+// ── raw JSON-RPC ─────────────────────────────────────────────
+async function ethCall(rpcUrl, to, data) {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error.message || "RPC error");
+  return json.result;
+}
+async function callAny(src, data) {
+  let lastErr;
+  for (const url of src.rpcs) { try { return await ethCall(url, src.contract, data); } catch (e) { lastErr = e; } }
+  throw lastErr || new Error("RPC unavailable");
+}
+const pad32 = (h) => h.padStart(64, "0");
+const addrParam = (a) => pad32(a.toLowerCase().replace(/^0x/, ""));
+const uintParam = (n) => pad32(BigInt(n).toString(16));
+const words = (hex) => (hex.replace(/^0x/, "").match(/.{64}/g) || []);
+export const isValidAddress = (a) => /^0x[0-9a-fA-F]{40}$/.test(a || "");
+export const shortAddr = (a) => (a ? a.slice(0, 6) + "…" + a.slice(-4) : "");
+
+// ERC-1155 or ERC-721? supportsInterface(0xd9b67a26).
+async function standardOf(src) {
+  if (src._std) return src._std;
+  try {
+    const r = await callAny(src, "0x01ffc9a7" + IFACE_1155.slice(2).padEnd(64, "0"));
+    src._std = BigInt(r) === 1n ? "1155" : "721";
+  } catch (_) { src._std = "721"; }
+  return src._std;
+}
+async function balancesOf1155(src, address, ids) {
+  const n = ids.length;
+  const head = uintParam(64) + uintParam(64 + 32 * (n + 1));
+  const accounts = uintParam(n) + ids.map(() => addrParam(address)).join("");
+  const idArr = uintParam(n) + ids.map(uintParam).join("");
+  const w = words(await callAny(src, "0x4e1273f4" + head + accounts + idArr)); // balanceOfBatch
+  return w.slice(2, 2 + n).map((x) => BigInt("0x" + x));
+}
+async function owned721(src, address) {
+  const want = address.toLowerCase();
+  const supply = Number(BigInt(await callAny(src, "0x18160ddd"))); // totalSupply: every minted id
+  const ids = Array.from({ length: supply }, (_, i) => i + 1);
+  const owners = await Promise.all(ids.map(async (id) => {
+    try { return "0x" + (await callAny(src, "0x6352211e" + uintParam(id))).slice(-40).toLowerCase(); } catch (_) { return null; }
+  }));
+  return ids.filter((_, i) => owners[i] === want);
+}
+
+// Every laser token the wallet holds → [{ id, name, color, sound }]
+export async function getLasers(address) {
+  const L = OWNERSHIP.lasers;
+  const std = await standardOf(L);
+  let ids;
+  if (std === "1155") {
+    const scan = Array.from({ length: 64 }, (_, i) => i + 1);
+    const bal = await balancesOf1155(L, address, scan);
+    ids = scan.filter((_, i) => bal[i] > 0n);
+  } else ids = await owned721(L, address);
+  return ids.map(laserInfo);
+}
+export function laserInfo(id) {
+  const L = OWNERSHIP.lasers;
+  return { id, name: (L.names[id] || `Pew Pew #${id}`).toUpperCase(), color: L.colors[id] || L.otherColor, sound: L.sound(id) };
+}
+
+// Ship tokens (ids ≥ minId) + the Manifold token, one batched call.
+export async function getShipHoldings(address) {
+  const S = OWNERSHIP.ships, M = OWNERSHIP.manifold;
+  const std = await standardOf(S);
+  const ids = [M.tokenId];
+  for (let i = S.minId; i <= S.scanMax; i++) ids.push(i);
+  let held;
+  if (std === "1155") { const bal = await balancesOf1155(S, address, ids); held = ids.filter((_, i) => bal[i] > 0n); }
+  else held = await owned721(S, address);
+  const shipTokens = held.filter((id) => id >= S.minId);
+  return {
+    shipTokens,
+    ships: [...new Set(shipTokens.map((id) => S.byTokenId[id]).filter(Boolean))],
+    manifold: held.includes(M.tokenId),
+  };
+}
+
+// ── ENS (cosmetic) ───────────────────────────────────────────
+export async function resolveENS(address) {
+  try {
+    const r = await (await fetch(`https://api.ensideas.com/ens/resolve/${address}`)).json();
+    return r && r.name ? r.name : null;
+  } catch (_) { return null; }
+}
+
+// ── ONE CALL: everything a wallet unlocks (parallel) ─────────
+export async function getAccess(address) {
+  const [lasers, ships, ens] = await Promise.all([
+    getLasers(address).catch(() => null),
+    getShipHoldings(address).catch(() => null),
+    resolveENS(address),
+  ]);
+  const shipIds = ships ? ships.ships : [];
+  if (ships && ships.manifold && OWNERSHIP.manifold.ship) shipIds.push(OWNERSHIP.manifold.ship);
+  return {
+    address,
+    ens,
+    lasers: lasers || [],
+    shipTokens: ships ? ships.shipTokens : [],
+    ships: [...new Set(shipIds)],
+    manifold: !!(ships && ships.manifold),
+    failed: { lasers: lasers === null, ships: ships === null },
+    holder: (lasers && lasers.length > 0) || (ships && (ships.shipTokens.length > 0 || ships.manifold)),
+  };
+}
+
+// ── WALLET DISCOVERY + CONNECT (EIP-6963, window.ethereum fallback) ──
+export function discoverWallets(timeoutMs = 400) {
+  return new Promise((resolve) => {
+    const found = new Map();
+    const onAnnounce = (e) => {
+      const { info, provider } = e.detail || {};
+      if (info && provider && !found.has(info.uuid)) found.set(info.uuid, { info, provider });
+    };
+    window.addEventListener("eip6963:announceProvider", onAnnounce);
+    window.dispatchEvent(new Event("eip6963:requestProvider"));
+    setTimeout(() => {
+      window.removeEventListener("eip6963:announceProvider", onAnnounce);
+      const list = [...found.values()];
+      if (!list.length && window.ethereum) list.push({ info: { uuid: "injected", name: "Browser Wallet", icon: null, rdns: "injected" }, provider: window.ethereum });
+      resolve(list);
+    }, timeoutMs);
+  });
+}
+export async function connectWith(provider) {
+  const accounts = await provider.request({ method: "eth_requestAccounts" });
+  if (!accounts || !accounts.length) throw new Error("NO_ACCOUNT");
+  return accounts[0];
+}
+export async function silentAccount(provider) {
+  try { const a = await provider.request({ method: "eth_accounts" }); return a && a[0] ? a[0] : null; } catch (_) { return null; }
+}
+export const isMobile = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+export function walletDeepLinks(siteUrl) {
+  const host = siteUrl.replace(/^https?:\/\//, "");
+  const enc = encodeURIComponent(siteUrl);
+  return [
+    { name: "Coinbase Wallet", href: `https://go.cb-w.com/dapp?cb_url=${enc}` },
+    { name: "MetaMask", href: `https://metamask.app.link/dapp/${host}` },
+    { name: "Trust Wallet", href: `https://link.trustwallet.com/open_url?coin_id=60&url=${enc}` },
+  ];
+}
