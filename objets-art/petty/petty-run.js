@@ -168,20 +168,20 @@ export function initPettyRun(B) {
       const cv = document.createElement("canvas"); cv.width = 1024; cv.height = 256;
       const g = cv.getContext("2d"); g.textAlign = "center"; g.textBaseline = "middle";
       let fs = 150; do { g.font = `400 ${fs}px Anta, Unbounded, sans-serif`; fs -= 6; } while (g.measureText(name).width > 960 && fs > 40);
-      g.lineWidth = 14; g.strokeStyle = "rgba(26,8,20,.85)"; g.strokeText(name, 512, 132);
-      const gr = g.createLinearGradient(0, 0, 1024, 0); gr.addColorStop(0, "#f6c2b0"); gr.addColorStop(0.5, "#fff2ec"); gr.addColorStop(1, "#f0c869");
-      g.fillStyle = gr; g.fillText(name, 512, 132);
+      // dark plum lettering with a gold edge: reads on chrome, rose gold and lacquer alike
+      g.lineJoin = "round"; g.lineWidth = 16; g.strokeStyle = "#f0c869"; g.strokeText(name, 512, 132);
+      g.fillStyle = "#1a0814"; g.fillText(name, 512, 132);
       const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
       // project straight down onto the rear half of the body, text reading from the chase cam
       const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(B.rig.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(B.rig.quaternion);
-      const at = c.clone().addScaledVector(fwd, -s.z * 0.12).addScaledVector(up, s.y * 0.5);
+      const at = c.clone().addScaledVector(fwd, -s.z * 0.3).addScaledVector(up, s.y * 0.5); // rear deck, behind the canopy
       const m = new THREE.Matrix4().lookAt(at, at.clone().sub(up), fwd);
       const orient = new THREE.Euler().setFromRotationMatrix(m);
-      const w = Math.min(s.x, s.z) * 0.78;
+      const w = Math.min(s.x, s.z) * 0.5; // stays on the flat of the deck, off the curved shoulders
       const geo = new DecalGeometry(best, at, orient, new THREE.Vector3(w, w / 4, s.y * 1.2));
       if (!geo.attributes.position || geo.attributes.position.count < 3) return;
       const inv = best.matrixWorld.clone().invert(); geo.applyMatrix4(inv);
-      decal = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.35, metalness: 0.4, emissive: new THREE.Color("#f0c869"), emissiveIntensity: 0.25, emissiveMap: tex }));
+      decal = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.4, metalness: 0.2 }));
       decal.renderOrder = 2; best.add(decal);
     } catch (e) { decal = null; }
   }
@@ -400,6 +400,7 @@ export function initPettyRun(B) {
     setTimeout(() => { if (D.phase === "petty") D.snapNext = true; }, reason === "ego_death" ? 700 : 300);
     D.fire = false;
     if (reason === "ego_death") {
+      clearTimeout(splashT); $("pSplash").classList.remove("on"); // EGO DEATH owns the screen
       G.targetScale = B.reduce ? 1 : 0.22;
       $("pEgoSub").textContent = "She's not mad. She's taking notes.";
       $("pEgo").classList.add("on");
@@ -639,8 +640,9 @@ export function initPettyRun(B) {
   }
   if (debug) {
     window.__petty = {
-      get state() { return G; }, get decal() { return decal; }, C, endRun, afterScore, forceFumble,
+      get state() { return G; }, get decal() { return decal; }, get bridge() { return B; }, C, endRun, afterScore, forceFumble,
       setScore(n) { G.score = n; afterScore(); },
+      forcePass(v) { const lvl = C.getLevel(G.score); const it = [...lvl.catchItems, ...lvl.avoidItems].find((x) => x.value === v) || { emoji: "🧪", name: "Debug", value: v }; const sprite = world.add(world.makeItem(it, v > 0)); G.itm.push({ s: G.s - 5, x: G.x + 20, y: G.y, vs: 0, vx: 0, vy: 0, ix: 0, iy: 0, it, good: v > 0, sprite, spin: 1, age: 1, lvl: lvl.name }); },
       catchValue(v) { const lvl = C.getLevel(G.score); const it = [...lvl.catchItems, ...lvl.avoidItems].find((x) => x.value === v) || { emoji: "🧪", name: "Debug", value: v }; const sprite = world.add(world.makeItem(it, v > 0)); G.itm.push({ s: G.s, x: G.x, y: G.y, vs: 0, vx: 0, vy: 0, ix: 0, iy: 0, it, good: v > 0, sprite, spin: 1, age: 1, lvl: lvl.name }); },
     };
   }

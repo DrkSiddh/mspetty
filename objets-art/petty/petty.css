@@ -132,7 +132,8 @@ body.touchdrive .ph-keys{display:none}
   .ph-score strong{font-size:48px}
   .ph-sub{justify-content:flex-start;gap:10px;margin-top:8px}
   .ph-lolz{font-size:16px}.ph-lolz b{font-size:20px}
-  .ph-level{font-size:15px;padding:7px 11px}
+  .ph-level{font-size:15px;padding:7px 11px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ph-sub{flex-wrap:nowrap}
   .ph-time{min-width:0;padding:10px 16px}
   .ph-time small{font-size:15px}
   .ph-time strong{font-size:42px}
@@ -143,6 +144,10 @@ body.touchdrive .ph-keys{display:none}
   .ph-flash.line{font-size:19px;padding:10px 14px}
   .ph-heckle{font-size:26px;white-space:normal;width:92vw}
   .ph-splash .k{font-size:17px}
+  .ph-splash h2{font-size:min(12.5vw,58px)}
+  .ph-ego h2{font-size:min(21vw,96px)}
+  #plBody{display:flex;flex-direction:column}
+  #plBody>.pgreet{order:0}#plBody>.field{order:1}#plBody>.choices{order:2}#plBody>.pwallet{order:3}#plBody>.btnrow{order:4}#plBody>.pperks{order:5}#plBody>.kicker{order:6}#plBody>.lasers{order:7}
   .ph-splash p{font-size:20px}
   .items{grid-template-columns:1fr}
 }
@@ -159,7 +164,8 @@ body.touchdrive .ph-keys{display:none}
 .pp-foot{position:sticky;bottom:0;margin:22px -32px 0;padding:18px 32px calc(env(safe-area-inset-bottom,0px) + 22px);background:linear-gradient(180deg,rgba(23,8,18,0),#170812 26%);z-index:2}
 .pp-tags{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0 6px}
 .pp-tags span{font:700 17px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:11px 15px;border-radius:999px;background:linear-gradient(90deg,rgba(240,200,105,.22),rgba(255,62,165,.18));border:1.5px solid var(--gold);color:var(--gold)}
-.pp-hero{display:grid;grid-template-columns:1.5fr 1fr;gap:14px;margin-top:16px}
+.pp-hero{display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-top:16px}
+.pp-hero .pp-tile.big+.pp-tile.big strong{font-size:clamp(40px,4.4vw,66px)}
 .pp-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-top:12px}
 .pp-tile{background:rgba(255,255,255,.06);border:1.5px solid var(--line);border-radius:22px;padding:18px 18px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
 .pp-tile small{font:700 16px/1.15 var(--mono);letter-spacing:.07em;text-transform:uppercase;color:var(--gold)}
