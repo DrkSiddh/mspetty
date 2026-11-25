@@ -113,7 +113,11 @@ export function initPettyRun(B) {
   }
   let heckleT = 0;
   function heckle(text) {
-    const el = $("pHeckle"); el.textContent = text; el.classList.add("on");
+    const el = $("pHeckle"); el.textContent = text;
+    const sp = screenOf(B.rig.position);
+    el.style.bottom = "auto";
+    el.style.top = clamp(sp.y - (innerWidth < 760 ? 150 : 170), innerHeight * 0.3, innerHeight * 0.75) + "px";
+    el.classList.add("on");
     clearTimeout(heckleT); heckleT = setTimeout(() => el.classList.remove("on"), 2200);
   }
   let splashT = 0;
@@ -191,10 +195,10 @@ export function initPettyRun(B) {
       t: 0, timeScale: 1, targetScale: 1,
       s: 0, x: 0, y: 0, vx: 0, vy: 0, speed: BASE_SPEED, nudge: 0, nudgeCool: 0, shake: 0,
       score: 0, lolz: 0, earned: 0, balloons: 0, catches: 0, poison: 0, poisonCost: 0, fumbles: 0,
-      ledger: [], chain: 0, negChain: 0, bestChain: 0, worstChain: 0,
+      ledger: [], poisonLog: {}, chain: 0, negChain: 0, bestChain: 0, worstChain: 0,
       levelId: C.getLevel(0).id, highestIdx: 0, timeLeft: C.INITIAL_TIME,
       ended: null, itemCounts: {}, bestCatch: null, worstPenalty: null,
-      spawnAcc: 0, fireCool: 0, autoFire: autoFirePref, lastHeckle: -99, snapNextAt: 2.5, snapEvery: 5,
+      spawnAcc: 0, fireCool: 0, autoFire: autoFirePref, lastHeckle: -99, snapNextAt: 1, snapEvery: 5,
       bal: [], itm: [], bol: [], startedAt: Date.now(), sacred: { 444: false, 888: false },
     });
   }
@@ -306,6 +310,7 @@ export function initPettyRun(B) {
       ringFlash(LIME); audio.catchGood(val);
     } else if (val < 0) {
       G.poison++; G.poisonCost += val;
+      G.poisonLog[o.it.name] = { emoji: o.it.emoji, name: o.it.name, value: val };
       G.negChain++; G.chain = 0; G.worstChain = Math.max(G.worstChain, G.negChain);
       if (!G.worstPenalty || val < G.worstPenalty.value) G.worstPenalty = { name: o.it.name, emoji: o.it.emoji, value: val };
       ringFlash(MAGENTA); audio.catchBad();
@@ -358,6 +363,7 @@ export function initPettyRun(B) {
   function endRun(reason) {
     if (G.ended) return;
     G.ended = reason; G.endT = G.t; G.phase = "ending";
+    setTimeout(() => { if (D.phase === "petty") D.snapNext = true; }, reason === "ego_death" ? 700 : 300);
     D.fire = false;
     if (reason === "ego_death") {
       G.targetScale = B.reduce ? 1 : 0.22;
@@ -565,7 +571,7 @@ export function initPettyRun(B) {
       biggestFumble: ledger[0] || null, bestChain: G.bestChain, worstChain: G.worstChain,
       levelReached: lvlTop.name, levelReachedIdx: G.highestIdx, finalLevel: C.getLevel(G.score).name,
       ended: G.ended || "quit", duration: Math.max(1, Math.round(G.t)), itemCounts: { ...G.itemCounts },
-      bestCatch: G.bestCatch, worstPenalty: G.worstPenalty,
+      bestCatch: G.bestCatch, worstPenalty: G.worstPenalty, poisonLog: { ...G.poisonLog },
       video: rec.video, videoExt: rec.videoExt, snaps: rec.snaps || [], at: new Date(),
     };
   }
