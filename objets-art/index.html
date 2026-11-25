@@ -1780,7 +1780,8 @@ try{if(!localStorage.getItem('objets.manualSeen')){setTimeout(()=>{if(!document.
 $('pettyBtn').onclick=()=>{if(PETTY)PETTY.openLobby(current>=0?current:0)};
 $('arcadePetty').onclick=()=>{closeModal('arcadeModal');if(PETTY)PETTY.openLobby(current>=0?current:0)};
 function stepBursts(dt){for(let i=bursts.length-1;i>=0;i--){const B=bursts[i];B.life-=dt*.9;const a=B.pts.geometry.attributes.position;for(let k=0;k<B.v.length;k++){a.array[k*3]+=B.v[k].x*dt;a.array[k*3+1]+=B.v[k].y*dt;a.array[k*3+2]+=B.v[k].z*dt}a.needsUpdate=true;B.pts.material.opacity=Math.max(0,B.life);if(B.life<=0){space.remove(B.pts);bursts.splice(i,1)}}}
-const PETTY_BRIDGE={THREE,CARS,D,space,spaceBg,farStars,dust,dustGeo,dustPos,DUST,gates,rocks,portal,rig,driveCar,holder,scene,camera,canvas,renderer,composer,bloom,controls,sparkTex,radio,STATIONS,
+const PLAY_HASH=(location.hash.match(/^#play-(.+)$/)||[])[1]||null; // read before setCard() rewrites the hash
+const PETTY_BRIDGE={THREE,playHash:PLAY_HASH,CARS,D,space,spaceBg,farStars,dust,dustGeo,dustPos,DUST,gates,rocks,portal,rig,driveCar,holder,scene,camera,canvas,renderer,composer,bloom,controls,sparkTex,radio,STATIONS,
   get current(){return current},get busy(){return busy},get mode(){return mode},get viewerEmail(){return viewerEmail},
   SB_URL,SB_KEY,COLLECTION_URL,coarse,reduce,$,pad,fmt,sleep,tween,easeIO,flash,msg,hint,burst,stepBursts,captureSnap,startDrive,landHome,pick,
   openModal,closeModal,saveRecord,saveFile,loadImg,cover,rr,fitFont,radioToggle,switchStation,ensureAudio,ensureAnalyser,radioPlay,placeWm};

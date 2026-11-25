@@ -658,15 +658,16 @@ export function initPettyRun(B) {
     get running() { return active; },
   });
   // deep link: objets.art/#play-<ship-id> opens straight into the lobby
-  function fromHash() {
+  function fromHash(first) {
     const m = location.hash.match(/^#play-(.+)$/);
-    if (!m) return;
-    const i = B.CARS.findIndex((c) => c.id === m[1]);
+    const id = m ? m[1] : first === true ? B.playHash : null;
+    if (!id) return;
+    const i = B.CARS.findIndex((c) => c.id === id);
     if (i < 0 || D.on) return;
     const go = () => { if (document.getElementById("loader").classList.contains("done")) setTimeout(() => lobby.open(i), 900); else setTimeout(go, 300); };
     go();
   }
-  addEventListener("hashchange", fromHash);
-  fromHash();
+  addEventListener("hashchange", () => fromHash(false));
+  fromHash(true);
   return api;
 }
