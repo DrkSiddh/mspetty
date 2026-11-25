@@ -66,6 +66,20 @@ async function ethCall(rpcUrl, to, data) {
   if (json.error) throw new Error(json.error.message || "RPC error");
   return json.result;
 }
+// One HTTP request for many eth_calls (JSON-RPC batch), with a short backoff on 429.
+async function ethBatch(rpcUrl, to, datas) {
+  const body = JSON.stringify(datas.map((data, i) => ({ jsonrpc: "2.0", id: i, method: "eth_call", params: [{ to, data }, "latest"] })));
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(rpcUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    if (res.status === 429) { await new Promise((r) => setTimeout(r, 600 * (attempt + 1))); continue; }
+    const json = await res.json();
+    if (!Array.isArray(json)) throw new Error("batch unsupported");
+    const out = new Array(datas.length).fill(null);
+    for (const r of json) if (r && !r.error && typeof r.id === "number") out[r.id] = r.result;
+    return out;
+  }
+  throw new Error("rate limited");
+}
 async function callAny(src, data) {
   let lastErr;
   for (const url of src.rpcs) { try { return await ethCall(url, src.contract, data); } catch (e) { lastErr = e; } }
@@ -99,9 +113,11 @@ async function owned721(src, address) {
   const want = address.toLowerCase();
   const supply = Number(BigInt(await callAny(src, "0x18160ddd"))); // totalSupply: every minted id
   const ids = Array.from({ length: supply }, (_, i) => i + 1);
-  const owners = await Promise.all(ids.map(async (id) => {
-    try { return "0x" + (await callAny(src, "0x6352211e" + uintParam(id))).slice(-40).toLowerCase(); } catch (_) { return null; }
-  }));
+  const datas = ids.map((id) => "0x6352211e" + uintParam(id)); // ownerOf
+  let raw = null;
+  for (const url of src.rpcs) { try { raw = await ethBatch(url, src.contract, datas); break; } catch (_) {} }
+  if (!raw) raw = await Promise.all(datas.map((d) => callAny(src, d).catch(() => null))); // RPC without batch support
+  const owners = raw.map((h) => (h && h.length >= 42 ? "0x" + h.slice(-40).toLowerCase() : null));
   return ids.filter((_, i) => owners[i] === want);
 }
 

@@ -11,6 +11,7 @@ import { createAcid } from "./petty-acid.js";
 import { createLobby } from "./petty-lobby.js";
 import { createPost } from "./petty-post.js";
 import { laserInfo } from "./petty-ownership.js";
+import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
 
 // In-run heckles (fumble triggered). Edit copy here.
 export const HECKLES = [
@@ -154,6 +155,38 @@ export function initPettyRun(B) {
   }
   function lightsOn() { lightStore.splice(0).forEach((s) => { s.m.emissiveIntensity = s.v; }); }
 
+  // ── holder perk: their name painted on the hull (projected decal) ──
+  let decal = null;
+  function paintHull(name) {
+    try {
+      const car = B.driveCar.children[0]; if (!car) return;
+      B.rig.updateMatrixWorld(true);
+      let best = null, bestVol = 0; const bb = new THREE.Box3(), sz = new THREE.Vector3();
+      car.traverse((o) => { if (!o.isMesh || !o.geometry || !o.geometry.attributes.position) return; bb.setFromObject(o); bb.getSize(sz); const v = sz.x * sz.y * sz.z; if (v > bestVol) { bestVol = v; best = o; } });
+      if (!best) return;
+      const box = new THREE.Box3().setFromObject(car), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+      const cv = document.createElement("canvas"); cv.width = 1024; cv.height = 256;
+      const g = cv.getContext("2d"); g.textAlign = "center"; g.textBaseline = "middle";
+      let fs = 150; do { g.font = `400 ${fs}px Anta, Unbounded, sans-serif`; fs -= 6; } while (g.measureText(name).width > 960 && fs > 40);
+      g.lineWidth = 14; g.strokeStyle = "rgba(26,8,20,.85)"; g.strokeText(name, 512, 132);
+      const gr = g.createLinearGradient(0, 0, 1024, 0); gr.addColorStop(0, "#f6c2b0"); gr.addColorStop(0.5, "#fff2ec"); gr.addColorStop(1, "#f0c869");
+      g.fillStyle = gr; g.fillText(name, 512, 132);
+      const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+      // project straight down onto the rear half of the body, text reading from the chase cam
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(B.rig.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(B.rig.quaternion);
+      const at = c.clone().addScaledVector(fwd, -s.z * 0.12).addScaledVector(up, s.y * 0.5);
+      const m = new THREE.Matrix4().lookAt(at, at.clone().sub(up), fwd);
+      const orient = new THREE.Euler().setFromRotationMatrix(m);
+      const w = Math.min(s.x, s.z) * 0.78;
+      const geo = new DecalGeometry(best, at, orient, new THREE.Vector3(w, w / 4, s.y * 1.2));
+      if (!geo.attributes.position || geo.attributes.position.count < 3) return;
+      const inv = best.matrixWorld.clone().invert(); geo.applyMatrix4(inv);
+      decal = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, roughness: 0.35, metalness: 0.4, emissive: new THREE.Color("#f0c869"), emissiveIntensity: 0.25, emissiveMap: tex }));
+      decal.renderOrder = 2; best.add(decal);
+    } catch (e) { decal = null; }
+  }
+  function unpaintHull() { if (decal) { decal.parent && decal.parent.remove(decal); decal.geometry.dispose(); decal.material.map.dispose(); decal.material.dispose(); decal = null; } }
+
   // ── run lifecycle ──────────────────────────────────────────
   let lobby, post;
   const portalHome = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), saved: false };
@@ -215,6 +248,7 @@ export function initPettyRun(B) {
     placeShip(0);
     placeCamera(0, true);
     for (let k = 0; k < 3; k++) spawnBalloon(70 + k * 42);
+    if (G.perks.hullName) paintHull((G.opts.ens || G.name || "").toUpperCase());
     const lvl = C.getLevel(0);
     splash(`<div class="k">ENTERING</div><h2>${esc(lvl.name)}</h2><p>“${esc(lvl.subtitle)}”</p>`, 2600);
     B.msg(G.mode === "speed" ? "Speed round<small>30 seconds. Pop the balloons. Fly through the lime stuff.</small>" : "Infinite<small>No clock. EGO DEATH at −30 is the only way out. Or quit.</small>", 3000);
@@ -548,6 +582,7 @@ export function initPettyRun(B) {
     active = false;
     G.phase = "done";
     lightsOn();
+    unpaintHull();
     if (beam) { B.space.remove(beam); beam = null; }
     if (portalHome.saved) { B.portal.position.copy(portalHome.pos); B.portal.quaternion.copy(portalHome.quat); }
     B.portal.visible = true;
@@ -604,7 +639,7 @@ export function initPettyRun(B) {
   }
   if (debug) {
     window.__petty = {
-      get state() { return G; }, C, endRun, afterScore, forceFumble,
+      get state() { return G; }, get decal() { return decal; }, C, endRun, afterScore, forceFumble,
       setScore(n) { G.score = n; afterScore(); },
       catchValue(v) { const lvl = C.getLevel(G.score); const it = [...lvl.catchItems, ...lvl.avoidItems].find((x) => x.value === v) || { emoji: "🧪", name: "Debug", value: v }; const sprite = world.add(world.makeItem(it, v > 0)); G.itm.push({ s: G.s, x: G.x, y: G.y, vs: 0, vx: 0, vy: 0, ix: 0, iy: 0, it, good: v > 0, sprite, spin: 1, age: 1, lvl: lvl.name }); },
     };
