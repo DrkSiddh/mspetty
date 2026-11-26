@@ -458,7 +458,7 @@ export function initPettyRun(B) {
 
     // SHIFT (or the touch Nudge button) nudges the ship faster for a beat
     G.nudgeCool = Math.max(0, G.nudgeCool - gdt); G.nudge = Math.max(0, G.nudge - gdt);
-    if ((k.shift || D.boost) && G.nudgeCool <= 0 && G.phase === "fly") { G.nudge = 1.1; G.nudgeCool = 2.4; acid.onNudge(); }
+    if ((k.shift || D.boost) && G.nudgeCool <= 0 && G.phase === "fly") { G.nudge = 1.1; G.nudgeCool = 2.4; acid.onNudge(); audio.nudge(); }
     const vT = G.phase === "return" ? (G.ended === "ego_death" ? 58 : 92) : G.nudge > 0 ? NUDGE_SPEED : BASE_SPEED;
     G.speed += (vT - G.speed) * Math.min(1, gdt * 2.2);
     G.s += G.speed * gdt;
@@ -593,6 +593,7 @@ export function initPettyRun(B) {
     G.bol.length = 0;
     $("pEgo").classList.remove("on"); $("pSplash").classList.remove("on"); $("pHeckle").classList.remove("on"); $("pFlashes").innerHTML = "";
     if (boostBtn && G.boostLabel) boostBtn.textContent = G.boostLabel;
+    const dbg = $("pettyDebug"); if (dbg) dbg.remove(); // debug panel lives only while a run flies
     acid.onLanded();
     post.open(summary(rec));
   }

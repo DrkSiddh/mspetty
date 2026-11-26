@@ -2,14 +2,23 @@
 // PETTY RUN — AUDIO
 // Laser pew pews: a laser holder fires laser-token{id}.mp3 (the live game's
 // sound map: src/MsPetty.jsx playPew). Balloon burst plays on every pop for
-// every player (live game rule). No laser held → a WebAudio synth pew and a
-// pink-noise pop stand in. PLACEHOLDER: replace the synth with a real file
-// when one exists (see DEFAULT_PEW below).
+// every player (live game rule), with the laser explosion under it.
 // Everything runs through the radio's AudioContext when it exists, so the
 // run video records the pew pews and the radio together.
+// The WebAudio synths below only play if a file fails to load.
 // ============================================================
 
 const SFX_VOL = 0.55; // live game volume
+
+// Swap any sound by changing its file here. Trimmed and level-matched from
+// the developer's uploads on 2026-11-26 (source names in the comments).
+export const SOUNDS = {
+  defaultPew: "sounds/pew-default.mp3", // no laser held · Mid_freq_laser_gun_shot (first take)
+  triplePew: "sounds/pew-triple.mp3",   // triple beam with no laser · low_freq_laser_gun_shot
+  explosion: "sounds/explosion.mp3",    // every balloon pop · Explosion_from_laser_gun_shot
+  burst: "sounds/balloon-burst.mp3",    // every balloon pop · live game file
+  nudge: "sounds/nudge-flame.mp3",      // SHIFT / Nudge · Laser_Flaming
+};
 
 export function createAudio(bridge) {
   const { radio, D } = bridge;
@@ -107,7 +116,7 @@ export function createAudio(bridge) {
     setLaser(tokenId) {
       laserUrl = tokenId ? `sounds/laser-token${tokenId}.mp3` : null;
       if (laserUrl) load(laserUrl);
-      load("sounds/balloon-burst.mp3");
+      Object.values(SOUNDS).forEach(load);
     },
     // One laser voice, retriggered: each shot restarts the clip so a 3s file
     // still reads as a pew pew at full fire rate.
@@ -116,15 +125,19 @@ export function createAudio(bridge) {
       const now = ctx.currentTime;
       if (now - lastLaser < 0.12) return;
       lastLaser = now;
-      if (!laserUrl) { synthPew(1); if (beams > 1) synthPew(1.26); return; }
+      // their laser's own sound; else the triple beam's heavy shot; else the default pew
+      const url = laserUrl || (beams > 1 ? SOUNDS.triplePew : SOUNDS.defaultPew);
       if (laserVoice) { const v = laserVoice; try { v.g.gain.setTargetAtTime(0.0001, now, 0.012); v.src.stop(now + 0.06); } catch (_) {} }
       laserVoice = null;
-      playUrl(laserUrl, 0.9).then((v) => { laserVoice = v; });
+      playUrl(url, laserUrl ? 0.9 : 0.8, laserUrl ? 1 : 0.97 + Math.random() * 0.06).then((v) => {
+        if (v) laserVoice = v; else { synthPew(1); if (beams > 1) synthPew(1.26); }
+      });
     },
     pop(big = false) {
-      playUrl("sounds/balloon-burst.mp3", 0.85, 0.96 + Math.random() * 0.1);
-      if (!laserUrl) synthPop(big);
+      playUrl(SOUNDS.burst, 0.85, 0.96 + Math.random() * 0.1);
+      playUrl(SOUNDS.explosion, big ? 0.75 : 0.55, 0.94 + Math.random() * 0.12).then((v) => { if (!v) synthPop(big); });
     },
+    nudge() { playUrl(SOUNDS.nudge, 0.85); },
     catchGood(val) { tone(val >= 20 ? [784, 988, 1319, 1568] : [880, 1319], val >= 20 ? 0.28 : 0.18, "triangle", 0.2); },
     catchBad() { tone([196, 147], 0.26, "sawtooth", 0.16); },
     fumble() { tone([392, 330, 262], 0.22, "square", 0.08); },

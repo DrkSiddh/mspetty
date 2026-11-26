@@ -19,7 +19,7 @@ export const SHIP_SALE_URLS = {
   "sleigh-genesis": "https://manifold.xyz/@maxximillian",
   "beast-mobile": "https://manifold.xyz/@maxximillian",
 };
-export const X_HANDLE = "@blaqqatbuillds";       // as written in the brief (check spelling)
+export const X_HANDLE = "@blaqqatbuilds @maxximillian"; // the dev org + the dev on X
 const STREAM_LINKS = [["Stream on Twitch", "https://www.twitch.tv/"], ["Go live on TikTok", "https://www.tiktok.com/live"]];
 const BOARDS = [["today", "Today"], ["all_time", "All time"], ["ship", "This ship"], ["fumbles", "Hall of Fumbles"]];
 const STEPS = [["receipts", "Receipts"], ["report", "Petty Report"], ["board", "Leaderboard"], ["shop", "Shop"]];
