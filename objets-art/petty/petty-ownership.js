@@ -33,9 +33,10 @@ export const OWNERSHIP = {
     contract: "0x378d5c126ed319db86c15ef4f6bd02885d6d0bf6",
     minId: 5,
     scanMax: 64,
-    // token id → Objets ship id. EMPTY ON PURPOSE: on 2026-11-25 totalSupply(id) is 0
-    // for every id from 5 to 64, so no ship token exists to read a name from yet.
-    // Fill this in as ships mint, e.g. { 5: "star-drift" }.
+    // token id → Objets ship id. Usually leave this EMPTY: every minted id from
+    // minId up is found on chain and matched to a ship by its metadata name
+    // (discoverShipTokens below). Only fill it in to override a match, e.g.
+    // { 5: "star-drift" }. On 2026-11-26 no id from 5 up was minted yet.
     byTokenId: {},
   },
   // 3) MANIFOLD TOKEN — manifold.xyz/@maxximillian/id/1948145904
@@ -138,8 +139,61 @@ export function laserInfo(id) {
   return { id, name: (L.names[id] || `Pew Pew #${id}`).toUpperCase(), color: L.colors[id] || L.otherColor, sound: L.sound(id) };
 }
 
+// ── ship tokens: found on chain as they mint ─────────────────
+// Every id from minId up with a non-zero supply is a ship. Its metadata name
+// is matched to one of the six Objets ships, so a new mint needs no code change.
+function decodeString(hex) {
+  const h = hex.replace(/^0x/, "");
+  const offset = parseInt(h.slice(0, 64), 16) * 2;
+  const len = parseInt(h.slice(offset, offset + 64), 16);
+  const bytes = h.slice(offset + 64, offset + 64 + len * 2);
+  return new TextDecoder().decode(new Uint8Array(bytes.match(/.{2}/g)?.map((b) => parseInt(b, 16)) || []));
+}
+const gatewayURL = (u) => (u || "").replace(/^ar:\/\//, "https://arweave.net/").replace(/^ipfs:\/\//, "https://ipfs.io/ipfs/");
+const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// "Star Drift · Series 01 #5" → star-drift. Longest names first, so a longer
+// ship name always wins over a shorter one it contains.
+export function matchShip(name, cars) {
+  const n = " " + norm(name) + " ";
+  return [...cars].sort((a, b) => b.name.length - a.name.length).find((c) => n.includes(" " + norm(c.name) + " ")) || null;
+}
+const SHIP_CACHE = "objets_petty_ship_tokens_v1";
+let shipMapP = null;
+// → { "star-drift": 5, ... } for every ship that has a minted token
+export function discoverShipTokens(cars) {
+  if (shipMapP) return shipMapP;
+  shipMapP = (async () => {
+    const S = OWNERSHIP.ships;
+    const manual = {};
+    for (const [id, shipId] of Object.entries(S.byTokenId)) manual[shipId] = +id;
+    try {
+      const c = JSON.parse(sessionStorage.getItem(SHIP_CACHE) || "null");
+      if (c && Date.now() - c.at < 3 * 3600e3) return { ...c.map, ...manual };
+    } catch (_) {}
+    const ids = [];
+    for (let i = S.minId; i <= S.scanMax; i++) ids.push(i);
+    let supply = null;
+    for (const url of S.rpcs) { try { supply = await ethBatch(url, S.contract, ids.map((id) => "0xbd85b039" + uintParam(id))); break; } catch (_) {} } // totalSupply(id)
+    if (!supply) { shipMapP = null; return manual; }
+    const minted = ids.filter((_, i) => supply[i] && BigInt(supply[i]) > 0n);
+    const found = {};
+    await Promise.all(minted.map(async (id) => {
+      try {
+        const raw = decodeString(await callAny(S, "0x0e89341c" + uintParam(id))); // uri(id)
+        const meta = await (await fetch(gatewayURL(raw.replace("{id}", uintParam(id))))).json();
+        const car = matchShip(meta.name, cars);
+        if (car && !(car.id in found)) found[car.id] = id;
+      } catch (_) {}
+    }));
+    try { sessionStorage.setItem(SHIP_CACHE, JSON.stringify({ at: Date.now(), map: found })); } catch (_) {}
+    return { ...found, ...manual };
+  })();
+  return shipMapP;
+}
+export const shipTokenURL = (tokenId) => `https://opensea.io/assets/ethereum/${OWNERSHIP.ships.contract}/${tokenId}`;
+
 // Ship tokens (ids ≥ minId) + the Manifold token, one batched call.
-export async function getShipHoldings(address) {
+export async function getShipHoldings(address, cars = []) {
   const S = OWNERSHIP.ships, M = OWNERSHIP.manifold;
   const std = await standardOf(S);
   const ids = [M.tokenId];
@@ -148,9 +202,14 @@ export async function getShipHoldings(address) {
   if (std === "1155") { const bal = await balancesOf1155(S, address, ids); held = ids.filter((_, i) => bal[i] > 0n); }
   else held = await owned721(S, address);
   const shipTokens = held.filter((id) => id >= S.minId);
+  const map = shipTokens.length ? await discoverShipTokens(cars) : {};
+  const byToken = {};
+  for (const [shipId, tokenId] of Object.entries(map)) byToken[tokenId] = shipId;
+  const ships = [...new Set(shipTokens.map((id) => byToken[id]).filter(Boolean))];
   return {
     shipTokens,
-    ships: [...new Set(shipTokens.map((id) => S.byTokenId[id]).filter(Boolean))],
+    ships,
+    unmatchedShip: shipTokens.some((id) => !byToken[id]), // a ship whose name we could not match yet
     manifold: held.includes(M.tokenId),
   };
 }
@@ -164,10 +223,10 @@ export async function resolveENS(address) {
 }
 
 // ── ONE CALL: everything a wallet unlocks (parallel) ─────────
-export async function getAccess(address) {
+export async function getAccess(address, cars = []) {
   const [lasers, ships, ens] = await Promise.all([
     getLasers(address).catch(() => null),
-    getShipHoldings(address).catch(() => null),
+    getShipHoldings(address, cars).catch(() => null),
     resolveENS(address),
   ]);
   const shipIds = ships ? ships.ships : [];
@@ -179,6 +238,7 @@ export async function getAccess(address) {
     shipTokens: ships ? ships.shipTokens : [],
     ships: [...new Set(shipIds)],
     manifold: !!(ships && ships.manifold),
+    unmatchedShip: !!(ships && ships.unmatchedShip),
     failed: { lasers: lasers === null, ships: ships === null },
     holder: (lasers && lasers.length > 0) || (ships && (ships.shipTokens.length > 0 || ships.manifold)),
   };

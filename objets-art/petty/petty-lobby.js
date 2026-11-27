@@ -63,14 +63,15 @@ export function createLobby(B, { launch, audio }) {
     const id = B.CARS[ship].id;
     const holdsShip = !!(access && access.ships.includes(id));
     const manifold = !!(access && access.manifold);
+    const anyShip = !!(access && access.unmatchedShip); // a ship token we could not name yet
     const laser = chosenLaser();
     return {
       infinite: !!(access && access.holder),
       holdsShip, manifold, laser,
-      tripleBeam: holdsShip || manifold,
+      tripleBeam: holdsShip || manifold || anyShip,
       ownerBadge: holdsShip,
-      hullName: holdsShip || manifold,
-      fullLoadout: !!laser && (holdsShip || manifold),
+      hullName: holdsShip || manifold || anyShip,
+      fullLoadout: !!laser && (holdsShip || manifold || anyShip),
     };
   }
   function greet() {
@@ -142,11 +143,11 @@ export function createLobby(B, { launch, audio }) {
   }
   async function check() {
     if (!wallet) return;
-    const a = await getAccess(wallet);
+    const a = await getAccess(wallet, B.CARS);
     access = a;
     const bits = [];
     if (a.lasers.length) bits.push(a.lasers.length === 1 ? "1 laser" : a.lasers.length + " lasers");
-    if (a.ships.length) bits.push("owns this ship");
+    if (a.ships.length || a.unmatchedShip) bits.push("holds a SuperKind ship");
     if (a.manifold) bits.push(OWNERSHIP.manifold.name);
     if (a.failed.lasers || a.failed.ships) bits.push("a chain did not answer, tap Disconnect and reconnect to retry");
     notice = bits.length ? bits.join(" · ") : "No SuperKind found. You still play free.";

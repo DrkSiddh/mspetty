@@ -7,18 +7,22 @@ import * as C from "./petty-levels.js";
 import { pickRoast } from "./petty-roasts.js";
 import { recordPettyRun, localBoard, createRemote } from "./petty-board.js";
 import { makePettyReport } from "./petty-report.js";
+import { discoverShipTokens, shipTokenURL } from "./petty-ownership.js";
 
-// Where "Buy this ship" goes. OPEN QUESTION: no ship token (id 5+) is minted on
-// the ILLI$T contract yet, so there is no per-ship sale page to link. Every ship
-// points at the creator's Manifold page until real URLs land here.
+// Where "Buy this ship" goes, first match wins:
+//   1. a sale page pasted in here (Manifold claim page or similar), else
+//   2. the ship's own token, found on chain once it mints (ids 5+ on the ILLI$T
+//      contract, matched to the ship by name), else
+//   3. "Coming soon" pointing at the creator's Manifold page.
 export const SHIP_SALE_URLS = {
-  "aurora-voyager": "https://manifold.xyz/@maxximillian",
-  "harvest-moon-glider": "https://manifold.xyz/@maxximillian",
-  "plasmatic-glider": "https://manifold.xyz/@maxximillian",
-  "star-drift": "https://manifold.xyz/@maxximillian",
-  "sleigh-genesis": "https://manifold.xyz/@maxximillian",
-  "beast-mobile": "https://manifold.xyz/@maxximillian",
+  "aurora-voyager": null,
+  "harvest-moon-glider": null,
+  "plasmatic-glider": null,
+  "star-drift": null,
+  "sleigh-genesis": null,
+  "beast-mobile": null,
 };
+const COMING_SOON_URL = "https://manifold.xyz/@maxximillian";
 export const X_HANDLE = "@blaqqatbuilds @maxximillian"; // the dev org + the dev on X
 const STREAM_LINKS = [["Stream on Twitch", "https://www.twitch.tv/"], ["Go live on TikTok", "https://www.tiktok.com/live"]];
 const BOARDS = [["today", "Today"], ["all_time", "All time"], ["ship", "This ship"], ["fumbles", "Hall of Fumbles"]];
@@ -71,6 +75,7 @@ export function createPost(B, { api, lobby, launch, fmtScore }) {
     else { try { const k = "objets.leads", a = JSON.parse(localStorage.getItem(k) || "[]"); a.push(Object.assign({ kind: "petty_run", car: run.ship.name, at: new Date().toISOString() }, lead)); localStorage.setItem(k, JSON.stringify(a.slice(-20))); } catch (_) {} }
     render();
     B.openModal("pettyPost");
+    discoverShipTokens(B.CARS).then((m) => { shipTokens = m; if (step === "shop") render(); }).catch(() => {});
     makeReport();
     let done; submitP = new Promise((r) => (done = r));
     try {
@@ -155,6 +160,13 @@ export function createPost(B, { api, lobby, launch, fmtScore }) {
       <div class="pp-boardnote" id="ppBoardNote"></div>
       <div class="pp-board" id="ppBoard"><div class="pp-making">Loading the board…</div></div>`;
   }
+  let shipTokens = null; // { shipId: tokenId } once the chain answers
+  function saleButton(s) {
+    const tokenId = shipTokens && shipTokens[s.id];
+    const url = SHIP_SALE_URLS[s.id] || (tokenId ? shipTokenURL(tokenId) : null);
+    if (url) return `<a class="bigbtn primary" href="${esc(url)}" target="_blank" rel="noopener">Buy the ${esc(s.name)}</a>`;
+    return `<a class="bigbtn primary" href="${COMING_SOON_URL}" target="_blank" rel="noopener">The ${esc(s.name)} drops soon &rarr;</a><span class="pp-soon">Not minted yet. Watch Manifold for the drop.</span>`;
+  }
   function shop() {
     const s = run.ship;
     return `<h2 id="ppTitle">Shop</h2>
@@ -162,7 +174,7 @@ export function createPost(B, { api, lobby, launch, fmtScore }) {
         <div><div class="kicker">ILLI Motors &middot; SuperKind Toy Co.</div><h3>${esc(s.name)}</h3><div class="specs"><span>${esc(s.edition)}</span><span>${esc(s.finish)}</span><span>${esc(s.cls)}</span></div>
           <p class="lead">Hold it, and Ms. Petty plays different.</p>
           <ul class="pp-perks"><li><b>Infinite</b> no clock, fly till EGO DEATH</li><li><b>Triple beam</b> three laser pew pews, red center, purple outer</li><li><b>Owner badge</b> next to your name on the leaderboard</li><li><b>Your name on the hull</b> painted on, every run</li></ul>
-          <div class="btnrow"><a class="bigbtn primary" href="${esc(SHIP_SALE_URLS[s.id] || SHIP_SALE_URLS["star-drift"])}" target="_blank" rel="noopener">Buy the ${esc(s.name)}</a></div></div></div>
+          <div class="btnrow">${saleButton(s)}</div></div></div>
       <h3 class="pp-h3">Pew Pew Arsenal</h3><p class="pp-tag">${esc(C.SHOP_TAGLINE)}</p>
       <p>Every pew pew is an ERC-721 on Base. Collect one → it enables Infinite Play + your own custom laser color.</p>
       <div class="pp-arsenal">${C.ONCHAIN_PEWS.map((p) => `<div class="pp-pew"><img src="${esc(p.art)}" alt="${esc(p.name)} pew pew" loading="lazy"><div><div class="chips2"><span class="now">NOW ONCHAIN</span><span>TOKEN #${p.id}</span></div><h4>${esc(p.name)}</h4><div class="en">⚡ Enables Infinite Play</div><a class="bigbtn ghost" href="${esc(C.transientToken(p.id))}" target="_blank" rel="noopener">Collect on Transient Labs &rarr;</a></div></div>`).join("")}</div>
